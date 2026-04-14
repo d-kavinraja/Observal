@@ -1,11 +1,12 @@
 import hashlib
+import hmac
 import uuid as _uuid
 from collections.abc import AsyncGenerator
 from datetime import UTC, datetime, timedelta
 
 import jwt
 from fastapi import Depends, Header, HTTPException, Request
-from sqlalchemy import String, cast, select, update
+from sqlalchemy import String, cast, select
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import selectinload
 
@@ -43,7 +44,7 @@ async def _authenticate_via_jwt(token: str, db: AsyncSession) -> User | None:
 
 async def _authenticate_via_api_key(api_key: str, db: AsyncSession, request: Request) -> User | None:
     """Try to authenticate using a raw API key. Returns User or None."""
-    key_hash = hashlib.sha256(api_key.encode()).hexdigest()
+    key_hash = hmac.new(settings.SECRET_KEY.encode(), api_key.encode(), "sha256").hexdigest()
 
     # Query ApiKey table with authorization check built into query
     result = await db.execute(
@@ -55,7 +56,9 @@ async def _authenticate_via_api_key(api_key: str, db: AsyncSession, request: Req
 
     if not api_key_record:
         # Fallback: Check legacy User.api_key_hash for backward compatibility
-        result = await db.execute(select(User).where(User.api_key_hash == key_hash))
+        # Legacy keys were stored with plain SHA256 (not HMAC)
+        legacy_hash = hashlib.sha256(api_key.encode()).hexdigest()
+        result = await db.execute(select(User).where(User.api_key_hash == legacy_hash))
         return result.scalar_one_or_none()
 
     # Check expiration

@@ -1,6 +1,6 @@
 """API key management endpoints for multi-key support with expiration and rotation."""
 
-import hashlib
+import hmac
 import logging
 import secrets
 from datetime import UTC, datetime, timedelta
@@ -37,11 +37,11 @@ def _generate_api_key(environment: ApiKeyEnvironment) -> tuple[str, str, str]:
         tuple: (full_key, sha256_hash, prefix)
     """
     # Use 43 bytes to ensure 256 bits of entropy after base64 encoding
-    # (43 bytes × 6 bits/char ≈ 258 bits)
+    # (43 bytes x 6 bits/char = ~258 bits)
     random_part = secrets.token_urlsafe(43)
     prefix = f"obs_{environment.value}_"
     full_key = f"{prefix}{random_part}"
-    key_hash = hashlib.sha256(full_key.encode()).hexdigest()
+    key_hash = hmac.new(settings.SECRET_KEY.encode(), full_key.encode(), "sha256").hexdigest()
     # Store first 10 chars of full_key as display prefix
     display_prefix = full_key[:10]
     return full_key, key_hash, display_prefix

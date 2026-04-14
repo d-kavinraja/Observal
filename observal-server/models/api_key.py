@@ -1,12 +1,18 @@
+from __future__ import annotations
+
 import enum
 import uuid
 from datetime import UTC, datetime
+from typing import TYPE_CHECKING
 
-from sqlalchemy import Boolean, CheckConstraint, DateTime, Enum, ForeignKey, Index, JSON, String, UniqueConstraint
+from sqlalchemy import JSON, CheckConstraint, DateTime, Enum, ForeignKey, Index, String, UniqueConstraint
 from sqlalchemy.dialects.postgresql import UUID
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 
 from models.base import Base
+
+if TYPE_CHECKING:
+    from models.user import User
 
 
 class ApiKeyEnvironment(str, enum.Enum):
@@ -47,7 +53,7 @@ class ApiKey(Base):
     scope: Mapped[dict | None] = mapped_column(JSON, nullable=True)
 
     # Relationships
-    user: Mapped["User"] = relationship("User", back_populates="api_keys")
+    user: Mapped[User] = relationship("User", back_populates="api_keys")
 
     # Table constraints
     __table_args__ = (

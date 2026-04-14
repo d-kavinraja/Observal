@@ -6,8 +6,9 @@ Create Date: 2026-04-14
 """
 
 import sqlalchemy as sa
+from sqlalchemy.dialects import postgresql
+
 from alembic import op
-from sqlalchemy.dialects.postgresql import UUID
 
 revision = "0003"
 down_revision = "0002"
@@ -19,8 +20,8 @@ def upgrade() -> None:
     # Create api_keys table
     op.create_table(
         "api_keys",
-        sa.Column("id", UUID(as_uuid=True), primary_key=True),
-        sa.Column("user_id", UUID(as_uuid=True), nullable=False),
+        sa.Column("id", postgresql.UUID(as_uuid=True), primary_key=True),
+        sa.Column("user_id", postgresql.UUID(as_uuid=True), nullable=False),
         sa.Column("name", sa.String(100), nullable=False),
         sa.Column("key_hash", sa.String(64), nullable=False),
         sa.Column("prefix", sa.String(10), nullable=False),

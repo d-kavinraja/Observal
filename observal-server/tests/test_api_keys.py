@@ -1,6 +1,7 @@
 """P0 tests for API key management: create, list, revoke, rotate, and authentication."""
 
 import hashlib
+import hmac
 import uuid
 from datetime import UTC, datetime, timedelta
 from unittest.mock import AsyncMock, MagicMock
@@ -8,9 +9,9 @@ from unittest.mock import AsyncMock, MagicMock
 import pytest
 from fastapi import HTTPException, Request
 
+from config import settings
 from models.api_key import ApiKey, ApiKeyEnvironment
 from models.user import User, UserRole
-
 
 # ---------------------------------------------------------------------------
 # Helper functions
@@ -42,7 +43,7 @@ def _make_api_key(
 ) -> tuple[ApiKey, str]:
     """Create a test API key. Returns (ApiKey, raw_key)."""
     raw_key = f"obs_{environment.value}_test123456"
-    key_hash = hashlib.sha256(raw_key.encode()).hexdigest()
+    key_hash = hmac.new(settings.SECRET_KEY.encode(), raw_key.encode(), "sha256").hexdigest()
 
     api_key = ApiKey(
         id=uuid.uuid4(),
@@ -191,7 +192,7 @@ class TestApiKeyAuthorization:
         key2, _ = _make_api_key(user.id, name="key2")
 
         # Other user has 1 key (should not be returned)
-        other_key, _ = _make_api_key(other_user.id, name="other-key")
+        _other_key, _ = _make_api_key(other_user.id, name="other-key")
 
         # Mock database to return only user's keys
         mock_scalars = MagicMock()
@@ -303,9 +304,10 @@ class TestApiKeyLifecycle:
     @pytest.mark.asyncio
     async def test_create_key_duplicate_name_fails(self):
         """Creating a key with duplicate name should fail with structured error."""
+        from sqlalchemy.exc import IntegrityError
+
         from api.routes.keys import create_key
         from schemas.keys import KeyCreateRequest
-        from sqlalchemy.exc import IntegrityError
 
         user = _make_user()
         request = KeyCreateRequest(
@@ -432,7 +434,7 @@ class TestKeyPrefixes:
         """Test environment keys should have obs_test_ prefix."""
         from api.routes.keys import _generate_api_key
 
-        full_key, key_hash, prefix = _generate_api_key(ApiKeyEnvironment.test)
+        full_key, _key_hash, prefix = _generate_api_key(ApiKeyEnvironment.test)
 
         assert full_key.startswith("obs_test_")
         assert prefix == full_key[:10]
@@ -441,7 +443,7 @@ class TestKeyPrefixes:
         """Dev environment keys should have obs_dev_ prefix."""
         from api.routes.keys import _generate_api_key
 
-        full_key, key_hash, prefix = _generate_api_key(ApiKeyEnvironment.dev)
+        full_key, _key_hash, prefix = _generate_api_key(ApiKeyEnvironment.dev)
 
         assert full_key.startswith("obs_dev_")
         assert prefix == full_key[:10]
@@ -496,8 +498,8 @@ class TestListKeysFiltering:
 
         # Create mock keys: 1 active, 1 expired, 1 revoked
         active_key, _ = _make_api_key(user.id, name="active")
-        expired_key, _ = _make_api_key(user.id, name="expired", expired=True)
-        revoked_key, _ = _make_api_key(user.id, name="revoked", revoked=True)
+        _expired_key, _ = _make_api_key(user.id, name="expired", expired=True)
+        _revoked_key, _ = _make_api_key(user.id, name="revoked", revoked=True)
 
         # Mock database to return only active key when filtered
         mock_scalars = MagicMock()
@@ -531,7 +533,7 @@ class TestListKeysFiltering:
         user = _make_user()
 
         # Create keys in different environments
-        live_key, _ = _make_api_key(user.id, name="live-key", environment=ApiKeyEnvironment.live)
+        _live_key, _ = _make_api_key(user.id, name="live-key", environment=ApiKeyEnvironment.live)
         test_key, _ = _make_api_key(user.id, name="test-key", environment=ApiKeyEnvironment.test)
 
         # Mock database to return only test environment keys
