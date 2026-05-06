@@ -61,6 +61,14 @@ jobs:
         working-directory: infra/terraform/aws/examples/minimal
         run: terraform validate -no-color
 
+      - name: terraform init (bootstrap)
+        working-directory: infra/terraform/aws/bootstrap
+        run: terraform init -backend=false -input=false
+
+      - name: terraform validate (bootstrap)
+        working-directory: infra/terraform/aws/bootstrap
+        run: terraform validate -no-color
+
   tflint:
     name: tflint
     runs-on: ubuntu-latest

@@ -53,36 +53,142 @@ The stateless app tier (api/web/worker) lives on Fargate across both AZs with au
 You also need:
 
 - An AWS account with billing enabled.
-- An IAM principal with permission to manage VPC, EC2, RDS, ElastiCache, ECS, IAM, ALB, ACM, Route53, SSM, CloudWatch, S3.
-- (Optional) a Route 53 hosted zone if you want HTTPS on a custom domain.
-- (Recommended) an S3 bucket + DynamoDB table for remote state (uncomment the `backend "s3"` block in `versions.tf`).
+- An IAM principal with permission to manage VPC, EC2, RDS, ElastiCache, ECS, IAM, ALB, ACM, Route 53, SSM, CloudWatch, S3, DynamoDB.
+- (Optional, for HTTPS) a Route 53 public hosted zone for your domain.
 
-## Quickstart
+## Production setup (recommended)
+
+Five steps from a fresh AWS account to a running install. Skip step 2 only if you're evaluating and OK with throwing away local state.
+
+### 1. Authenticate
+
+Any of these is fine — Terraform reads the standard AWS SDK credential chain:
+
+```bash
+# Long-lived IAM user
+export AWS_PROFILE=observal-prod
+
+# Or AWS SSO / IAM Identity Center
+aws sso login --profile observal-prod
+export AWS_PROFILE=observal-prod
+
+# Or short-lived session creds
+eval "$(aws configure export-credentials --profile observal-prod --format env)"
+```
+
+Verify with `aws sts get-caller-identity`.
+
+### 2. Bootstrap remote state — run once per AWS account
+
+This creates the S3 bucket + DynamoDB lock table that hold Terraform state. Without it, state lives only on your laptop — losing the file orphans live AWS resources.
+
+```bash
+cd infra/terraform/aws/bootstrap
+terraform init
+terraform apply
+terraform output -raw backend_config   # copy this
+```
+
+Paste the output into the `backend "s3" {}` block in `infra/terraform/aws/versions.tf` (it ships commented out). Details: [`bootstrap/README.md`](bootstrap/README.md).
+
+### 3. Configure inputs
 
 ```bash
 cd infra/terraform/aws
-
-# 1. Authenticate (any of these works)
-export AWS_PROFILE=observal-prod
-# or: aws configure sso
-
-# 2. Configure
 cp terraform.tfvars.example terraform.tfvars
 $EDITOR terraform.tfvars
+```
 
-# 3. Apply
-terraform init
+For a real production install you almost certainly want:
+
+```hcl
+region          = "us-east-1"
+environment     = "prod"
+name_prefix     = "observal"
+
+# HTTPS on a custom domain (Route 53 zone must already exist in this account)
+domain_name     = "observal.example.com"
+route53_zone_id = "Z0123456789ABCDEFGHIJ"
+
+# Lock the ALB to your office / VPN / corporate egress
+alb_ingress_cidrs = ["203.0.113.0/24", "198.51.100.42/32"]
+
+# Pin to a specific release instead of latest
+image_tag = "v1.42.0"
+```
+
+The complete input list is in [`variables.tf`](variables.tf).
+
+### 4. Apply
+
+```bash
+terraform init        # picks up the S3 backend from step 2
 terraform plan -out tf.plan
 terraform apply tf.plan
 ```
 
-A clean apply takes ~12–15 minutes (RDS dominates). When it finishes:
+A clean apply takes **~20–30 minutes** (RDS Multi-AZ provisioning dominates). What gets created: ~100 AWS resources end-to-end.
+
+If you skipped step 2, run `terraform init -migrate-state` after configuring the backend and Terraform will move local state into S3.
+
+#### Watching the apply in the AWS Console
+
+While Terraform runs, you can watch resources come up live. Replace `<REGION>` in the URLs below with the region from your `terraform.tfvars`. The names below assume `name_prefix = "observal"` and `environment = "prod"` — if you changed those, substitute accordingly (the pattern is `<name_prefix>-<environment>-<resource>`).
+
+| Resource | Console link (replace `<REGION>`) | What to look for |
+|---|---|---|
+| RDS Postgres | `https://<REGION>.console.aws.amazon.com/rds/home?region=<REGION>#databases:` | `observal-prod-pg` → Status: `Available` (passes through `Creating` → `Backing-up` → `Modifying`) |
+| ElastiCache Redis | `https://<REGION>.console.aws.amazon.com/elasticache/home?region=<REGION>#/redis` | `observal-prod-redis` → Status: `available` |
+| ECS Fargate | `https://<REGION>.console.aws.amazon.com/ecs/v2/clusters?region=<REGION>` | Cluster `observal-prod-cluster` → Services tab: `api`/`web`/`worker` showing `Running 2/2` (or 1/1 for worker) |
+| ALB | `https://<REGION>.console.aws.amazon.com/ec2/home?region=<REGION>#LoadBalancers:` | `observal-prod-alb` → State: `Active` |
+| EC2 data host | `https://<REGION>.console.aws.amazon.com/ec2/home?region=<REGION>#Instances:` | `observal-prod-data-host` → Status check: `2/2 checks passed` |
+| VPC | `https://<REGION>.console.aws.amazon.com/vpc/home?region=<REGION>#vpcs:` | `observal-prod-vpc` |
+| S3 (state + backups) | `https://s3.console.aws.amazon.com/s3/buckets` | `observal-tf-state-<account_id>` and `observal-prod-backups-<account_id>` (S3 console is global) |
+| CloudWatch logs | `https://<REGION>.console.aws.amazon.com/cloudwatch/home?region=<REGION>#logsV2:log-groups` | `/aws/ecs/observal-prod/api`, `/aws/ecs/observal-prod/web`, `/aws/ecs/observal-prod/worker`, `/aws/ec2/observal-prod/data-host`, `/aws/elasticache/observal-prod/redis/slow`, `/aws/vpc/observal-prod/flow-logs` |
+
+> **Region gotcha**: the AWS Console only shows resources in the region selected in the top-right dropdown. If a resource looks missing, you're probably looking at the wrong region.
+
+Typical timing during apply:
+
+| Resource | Appears | Becomes available |
+|---|---|---|
+| VPC, subnets, IGW, NAT | ~1 min | ~3 min |
+| ALB | ~2 min | ~3 min |
+| ElastiCache Redis | ~3 min | ~7 min |
+| RDS Postgres (Multi-AZ) | ~3 min | **~15–20 min** ← long pole |
+| EC2 data host | ~5 min | ~6 min, then ~3 more min for docker-compose |
+| ECS services | last | tasks healthy ~2 min after RDS+Redis are ready |
+
+If you prefer the terminal:
 
 ```bash
-terraform output app_url
-terraform output ecs_cluster_name
-terraform output data_host_ssm_session_command
+# RDS
+watch -n 10 "aws rds describe-db-instances \
+  --query 'DBInstances[?DBInstanceIdentifier==\`observal-prod-pg\`].[DBInstanceStatus,Endpoint.Address]' \
+  --output table"
+
+# Redis
+watch -n 10 "aws elasticache describe-replication-groups \
+  --replication-group-id observal-prod-redis \
+  --query 'ReplicationGroups[0].Status' --output text"
+
+# ECS services
+watch -n 10 "aws ecs describe-services \
+  --cluster observal-prod-cluster \
+  --services observal-prod-api observal-prod-web observal-prod-worker \
+  --query 'services[*].[serviceName,status,runningCount,desiredCount]' \
+  --output table"
 ```
+
+### 5. Verify
+
+```bash
+terraform output app_url                        # https://observal.example.com (or ALB DNS in HTTP mode)
+terraform output ecs_cluster_name               # observal-prod-cluster
+terraform output data_host_ssm_session_command  # SSM session into the data host
+```
+
+The api takes ~2–3 minutes to be reachable after `apply` finishes (ECS task startup + ALB health checks). `curl -fsS $(terraform output -raw app_url)/readyz` should return 200.
 
 A working module-call example lives at [`examples/minimal`](examples/minimal/).
 
@@ -130,7 +236,7 @@ aws ssm get-parameter --with-decryption \
   --query Parameter.Value --output text
 ```
 
-**Upgrade to a new release:** bump `image_tag` in `terraform.tfvars` and re-apply. The `null_resource.run_init` rerun handles migrations; ECS handles the rolling deploy.
+For upgrades, rollbacks, teardown, and DR see [Day-2 operations](#day-2-operations) below.
 
 ## Costs (rough, us-east-1, on-demand)
 
@@ -150,11 +256,30 @@ aws ssm get-parameter --with-decryption \
 
 Drop to single-AZ RDS, single Redis node, and `worker_desired_count = 0` for staging by setting `environment != "prod"`.
 
+## Day-2 operations
+
+### Upgrade to a new release
+Bump `image_tag` in `terraform.tfvars` and re-apply. The `null_resource.run_init` rerun handles migrations; ECS handles the rolling deploy.
+
+### Roll back
+Set `image_tag` to the previous version and re-apply. RDS / ClickHouse data are not affected.
+
+### Tear down
+```bash
+terraform destroy
+```
+The bootstrap module's bucket + table have `prevent_destroy = true` — destroying the main module won't touch them. To remove them too, edit `bootstrap/main.tf` to drop the lifecycle blocks, then `terraform destroy` in `bootstrap/`. Don't do this until you're sure no Observal install in the account still needs the state.
+
+### Disaster recovery
+- **Postgres**: automated daily snapshots (7-day retention on prod). Restore via `aws rds restore-db-instance-from-db-snapshot`.
+- **ClickHouse**: daily snapshot to the S3 backups bucket via systemd timer (see `user-data.sh.tftpl`). Restore with `clickhouse-client RESTORE`.
+- **Terraform state**: S3 versioning is on — recover prior state with `aws s3api list-object-versions` + `cp --version-id`.
+
 ## Production hardening checklist
 
 Before using in front of customers:
 
-- [ ] Switch the Terraform backend to S3 + DynamoDB (uncomment the block in `versions.tf`)
+- [x] Switch the Terraform backend to S3 + DynamoDB — done by the `bootstrap/` module
 - [ ] Restrict `alb_ingress_cidrs` to known CIDRs
 - [ ] Enable AWS Config + GuardDuty in the account
 - [ ] Wire CloudWatch alarms on RDS CPU / freeable memory, ECS service CPU, ALB 5xx
@@ -166,6 +291,7 @@ Before using in front of customers:
 ## Layout
 
 ```
+bootstrap/                 # one-time S3 state bucket + DynamoDB lock table
 versions.tf                # provider versions + (commented) S3 backend
 variables.tf               # all inputs
 locals.tf                  # AZ lookup, derived names, internal DNS
@@ -186,3 +312,19 @@ user-data.sh.tftpl         # cloud-init for the data host (CH + Grafana + Promet
 terraform.tfvars.example
 examples/minimal/          # ready-to-apply module-call example
 ```
+
+## Troubleshooting
+
+**`No valid credential sources found` on `terraform plan`** — your shell auth (e.g. AWS CLI v2 `aws login` profile) isn't visible to the AWS SDK that Terraform uses. Export the resolved creds:
+
+```bash
+eval "$(aws configure export-credentials --profile <name> --format env)"
+```
+
+**`The bucket you tried to create already exists`** when running the bootstrap module — S3 bucket names are globally unique. Change `name_prefix` in `bootstrap/terraform.tfvars` and re-apply, or import the existing bucket.
+
+**`Error: getting Application Load Balancer Listener Rule ... too many path patterns`** — fixed; max is 5 per `path_pattern` condition.
+
+**`apply` hangs on RDS** — first-time `db.t4g.small` Multi-AZ provisioning can take 15+ minutes. Check the AWS console; it's almost always the RDS resource still in `creating`.
+
+**App returns 502 right after apply** — ECS tasks need ~2 min to pass ALB health checks. `aws logs tail /aws/ecs/observal-prod/api --follow` shows what the api is doing.

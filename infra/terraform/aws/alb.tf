@@ -109,6 +109,7 @@ resource "aws_lb_listener" "http" {
 }
 
 # Path-based rules on the HTTP listener (no-TLS mode).
+# Split across two rules — AWS allows max 5 path patterns per path_pattern condition.
 resource "aws_lb_listener_rule" "http_api" {
   count        = local.enable_tls ? 0 : 1
   listener_arn = aws_lb_listener.http.arn
@@ -121,7 +122,24 @@ resource "aws_lb_listener_rule" "http_api" {
 
   condition {
     path_pattern {
-      values = ["/api/*", "/auth/*", "/readyz", "/healthz", "/metrics", "/openapi.json", "/docs", "/docs/*", "/redoc"]
+      values = ["/api/*", "/auth/*", "/readyz", "/healthz", "/metrics"]
+    }
+  }
+}
+
+resource "aws_lb_listener_rule" "http_api_docs" {
+  count        = local.enable_tls ? 0 : 1
+  listener_arn = aws_lb_listener.http.arn
+  priority     = 110
+
+  action {
+    type             = "forward"
+    target_group_arn = aws_lb_target_group.api.arn
+  }
+
+  condition {
+    path_pattern {
+      values = ["/openapi.json", "/docs", "/docs/*", "/redoc"]
     }
   }
 }
@@ -206,7 +224,24 @@ resource "aws_lb_listener_rule" "https_api" {
 
   condition {
     path_pattern {
-      values = ["/api/*", "/auth/*", "/readyz", "/healthz", "/metrics", "/openapi.json", "/docs", "/docs/*", "/redoc"]
+      values = ["/api/*", "/auth/*", "/readyz", "/healthz", "/metrics"]
+    }
+  }
+}
+
+resource "aws_lb_listener_rule" "https_api_docs" {
+  count        = local.enable_tls ? 1 : 0
+  listener_arn = aws_lb_listener.https[0].arn
+  priority     = 110
+
+  action {
+    type             = "forward"
+    target_group_arn = aws_lb_target_group.api.arn
+  }
+
+  condition {
+    path_pattern {
+      values = ["/openapi.json", "/docs", "/docs/*", "/redoc"]
     }
   }
 }
