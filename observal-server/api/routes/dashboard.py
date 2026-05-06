@@ -22,7 +22,6 @@ from models.sandbox import SandboxListing, SandboxVersion
 from models.skill import SkillListing, SkillVersion
 from models.user import User, UserRole
 from schemas.dashboard import (
-    AgentMetrics,
     ComponentLeaderboardItem,
     DateAvg,
     GraphRagQuery,
@@ -31,7 +30,6 @@ from schemas.dashboard import (
     IdeUsage,
     LatencyCell,
     LeaderboardItem,
-    McpMetrics,
     OverviewStats,
     RagasDimensionScore,
     RagasEvalRequest,
@@ -73,107 +71,6 @@ async def _ch_json(sql: str, params: dict | None = None) -> list[dict]:
     return []
 
 
-@router.get("/mcps/{listing_id}/metrics", response_model=McpMetrics)
-@cache(expire=settings.CACHE_TTL_DEFAULT, namespace="dashboard")
-async def mcp_metrics(
-    listing_id: uuid.UUID,
-    db: AsyncSession = Depends(get_db),
-    current_user: User = Depends(require_role(UserRole.admin)),
-):
-    dl_count = await db.scalar(select(func.count(McpDownload.id)).where(McpDownload.listing_id == listing_id)) or 0
-
-    rows = await _ch_json(
-        "SELECT "
-        "count() as total_calls, "
-        "countIf(status='error') as error_count, "
-        "round(avg(latency_ms),1) as avg_latency, "
-        "quantile(0.5)(latency_ms) as p50, "
-        "quantile(0.9)(latency_ms) as p90, "
-        "quantile(0.99)(latency_ms) as p99 "
-        "FROM mcp_tool_calls WHERE mcp_server_id = {sid:String}",
-        {"param_sid": str(listing_id)},
-    )
-    r = rows[0] if rows else {}
-    total_calls = int(r.get("total_calls", 0))
-    error_count = int(r.get("error_count", 0))
-
-    await audit(current_user, "dashboard.mcp_metrics", resource_type="dashboard", resource_id=str(listing_id))
-    return McpMetrics(
-        listing_id=listing_id,
-        total_downloads=dl_count,
-        total_calls=total_calls,
-        error_count=error_count,
-        error_rate=round(error_count / total_calls, 4) if total_calls else 0,
-        avg_latency_ms=float(r.get("avg_latency", 0)),
-        p50_latency_ms=int(float(r.get("p50", 0))),
-        p90_latency_ms=int(float(r.get("p90", 0))),
-        p99_latency_ms=int(float(r.get("p99", 0))),
-    )
-
-
-@router.get("/agents/{agent_id}/metrics", response_model=AgentMetrics)
-@cache(expire=settings.CACHE_TTL_DEFAULT, namespace="dashboard")
-async def agent_metrics(
-    agent_id: uuid.UUID,
-    db: AsyncSession = Depends(get_db),
-    current_user: User = Depends(require_role(UserRole.admin)),
-):
-    from models.eval import Scorecard
-    from services.eval.score_aggregator import ScoreAggregator
-
-    dl_count = (
-        await db.scalar(select(func.count(AgentDownloadRecord.id)).where(AgentDownloadRecord.agent_id == agent_id)) or 0
-    )
-
-    rows = await _ch_json(
-        "SELECT "
-        "count() as total, "
-        "countIf(user_action='accepted') as accepted, "
-        "round(avg(tool_calls),1) as avg_tools, "
-        "round(avg(latency_ms),1) as avg_latency "
-        "FROM agent_interactions WHERE agent_id = {aid:String}",
-        {"param_aid": str(agent_id)},
-    )
-    r = rows[0] if rows else {}
-    total = int(r.get("total", 0))
-    accepted = int(r.get("accepted", 0))
-
-    # Fetch recent scorecards for dimension breakdown
-    sc_result = await db.execute(
-        select(Scorecard).where(Scorecard.agent_id == agent_id).order_by(Scorecard.evaluated_at.desc()).limit(100)
-    )
-    scorecards = sc_result.scalars().all()
-    dimension_averages = None
-    weakest_dimension = None
-    drift_alert = False
-    if scorecards:
-        sc_dicts = [
-            {
-                "composite_score": sc.composite_score or (sc.overall_score * 10),
-                "dimension_scores": sc.dimension_scores or {},
-                "evaluated_at": str(sc.evaluated_at),
-            }
-            for sc in scorecards
-        ]
-        agg = ScoreAggregator().compute_agent_aggregate(sc_dicts)
-        dimension_averages = agg.get("dimension_averages")
-        weakest_dimension = agg.get("weakest_dimension")
-        drift_alert = agg.get("drift_alert", False)
-
-    await audit(current_user, "dashboard.agent_metrics", resource_type="dashboard", resource_id=str(agent_id))
-    return AgentMetrics(
-        agent_id=agent_id,
-        total_interactions=total,
-        total_downloads=dl_count,
-        acceptance_rate=round(accepted / total, 4) if total else 0,
-        avg_tool_calls=float(r.get("avg_tools", 0)),
-        avg_latency_ms=float(r.get("avg_latency", 0)),
-        dimension_averages=dimension_averages,
-        weakest_dimension=weakest_dimension,
-        drift_alert=drift_alert,
-    )
-
-
 @router.get("/overview/stats", response_model=OverviewStats)
 @cache(expire=settings.CACHE_TTL_DASHBOARD, namespace="dashboard")
 async def overview_stats(
@@ -200,11 +97,11 @@ async def overview_stats(
 
     days = _range_days(range_)
     tool_rows = await _ch_json(
-        "SELECT count() as cnt FROM mcp_tool_calls WHERE timestamp > now() - INTERVAL {days:UInt32} DAY",
+        "SELECT count() as cnt FROM spans WHERE start_time > now() - INTERVAL {days:UInt32} DAY AND is_deleted = 0",
         {"param_days": str(days)},
     )
     agent_rows = await _ch_json(
-        "SELECT count() as cnt FROM agent_interactions WHERE timestamp > now() - INTERVAL {days:UInt32} DAY",
+        "SELECT count() as cnt FROM traces WHERE start_time > now() - INTERVAL {days:UInt32} DAY AND is_deleted = 0",
         {"param_days": str(days)},
     )
 

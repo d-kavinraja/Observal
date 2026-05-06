@@ -97,7 +97,7 @@ async def maintain_clickhouse(ctx: dict):
     """
     from services.clickhouse import _query
 
-    tables = ["traces", "spans", "scores", "mcp_tool_calls", "agent_interactions"]
+    tables = ["traces", "spans", "scores"]
     for table in tables:
         try:
             await _query(f"OPTIMIZE TABLE {table}")

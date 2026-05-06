@@ -373,8 +373,6 @@ export const dashboard = {
     return get<ComponentLeaderboardItem[]>(`/overview/component-leaderboard${qs ? `?${qs}` : ''}`);
   },
   trends: (range?: string) => get<TrendPoint[]>(`/overview/trends${range ? `?range=${range}` : ''}`),
-  mcpMetrics: (id: string) => get<unknown>(`/mcps/${id}/metrics`),
-  agentMetrics: (id: string) => get<unknown>(`/agents/${id}/metrics`),
   tokenStats: (range?: string) => get<TokenStats>(`/dashboard/tokens${range ? `?range=${range}` : ''}`),
   ideUsage: () => get<IdeUsageData>('/dashboard/ide-usage'),
   sessions: (params?: { status?: string; platform?: string; days?: number }) => {

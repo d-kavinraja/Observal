@@ -74,12 +74,12 @@ def _score_to_grade(score: float) -> str:
 
 
 async def fetch_traces(agent_id: str, limit: int = 20, trace_id: str | None = None) -> list[dict]:
-    """Fetch recent agent interaction traces from ClickHouse."""
+    """Fetch recent agent traces from ClickHouse."""
     if trace_id:
-        sql = "SELECT * FROM agent_interactions WHERE agent_id = {aid:String} AND event_id = {tid:String} FORMAT JSON"
+        sql = "SELECT * FROM traces WHERE agent_id = {aid:String} AND trace_id = {tid:String} AND is_deleted = 0 FORMAT JSON"
         params = {"param_aid": agent_id, "param_tid": trace_id}
     else:
-        sql = f"SELECT * FROM agent_interactions WHERE agent_id = {{aid:String}} ORDER BY timestamp DESC LIMIT {int(limit)} FORMAT JSON"
+        sql = f"SELECT * FROM traces WHERE agent_id = {{aid:String}} AND is_deleted = 0 ORDER BY start_time DESC LIMIT {int(limit)} FORMAT JSON"
         params = {"param_aid": agent_id}
 
     try:
