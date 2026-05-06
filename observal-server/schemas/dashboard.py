@@ -3,31 +3,6 @@ import uuid
 from pydantic import BaseModel
 
 
-class McpMetrics(BaseModel):
-    listing_id: uuid.UUID
-    total_downloads: int
-    total_calls: int
-    error_count: int
-    error_rate: float
-    avg_latency_ms: float
-    p50_latency_ms: int
-    p90_latency_ms: int
-    p99_latency_ms: int
-
-
-class AgentMetrics(BaseModel):
-    agent_id: uuid.UUID
-    total_interactions: int
-    total_downloads: int
-    acceptance_rate: float
-    avg_tool_calls: float
-    avg_latency_ms: float
-    # New structured scoring fields
-    dimension_averages: dict | None = None
-    weakest_dimension: str | None = None
-    drift_alert: bool = False
-
-
 class TimeSeriesPoint(BaseModel):
     date: str
     value: int

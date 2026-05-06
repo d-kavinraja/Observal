@@ -110,8 +110,6 @@ CLICKHOUSE_TABLES: list[TableCfg] = [
     {"name": "spans", "engine": "replacing", "time_col": "start_time", "fk_cols": ["agent_id", "mcp_id", "user_id"]},
     {"name": "scores", "engine": "replacing", "time_col": "timestamp", "fk_cols": ["agent_id", "mcp_id", "user_id"]},
     {"name": "audit_log", "engine": "mergetree", "time_col": "timestamp", "fk_cols": ["actor_id"]},
-    {"name": "mcp_tool_calls", "engine": "mergetree", "time_col": "timestamp", "fk_cols": ["mcp_server_id", "user_id"]},
-    {"name": "agent_interactions", "engine": "mergetree", "time_col": "timestamp", "fk_cols": ["agent_id", "user_id"]},
     # otel_logs DDL uses capital-T "Timestamp" (OpenTelemetry convention)
     {"name": "otel_logs", "engine": "mergetree", "time_col": "Timestamp", "fk_cols": []},
     {"name": "security_events", "engine": "mergetree", "time_col": "timestamp", "fk_cols": []},
