@@ -39,11 +39,11 @@ hooks:  ## Install pre-commit hooks
 
 # ── Docker ───────────────────────────────────────────────
 
-# Auto-detect enterprise mode: if observal-insights/ exists, use enterprise override
+# Auto-detect enterprise mode: if ee/observal_insights/ exists, use enterprise override
 COMPOSE_FILES := -f docker-compose.yml
-ifneq (,$(wildcard observal-insights/pyproject.toml))
+ifneq (,$(wildcard ee/observal_insights/__init__.py))
   COMPOSE_FILES += -f docker-compose.enterprise.yml
-  $(info [enterprise mode] observal-insights/ detected)
+  $(info [enterprise mode] ee/observal_insights/ detected)
 endif
 
 up:  ## Start Docker stack
