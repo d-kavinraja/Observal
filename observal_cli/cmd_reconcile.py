@@ -22,17 +22,6 @@ import json
 import time
 from pathlib import Path
 
-import typer
-from rich import print as rprint
-from rich.table import Table
-
-reconcile_app = typer.Typer(
-    name="reconcile",
-    help="Crash recovery for interrupted IDE sessions.",
-    no_args_is_help=True,
-)
-
-
 # ---------------------------------------------------------------------------
 # Discovery
 # ---------------------------------------------------------------------------
@@ -372,78 +361,6 @@ def _run_recovery(home: Path | None = None) -> None:
             recover_stale_session(session, config, home=home)
         except Exception:
             pass
-
-
-# ---------------------------------------------------------------------------
-# CLI commands
-# ---------------------------------------------------------------------------
-
-
-@reconcile_app.command("run")
-def reconcile_run():
-    """Run crash recovery for interrupted sessions now."""
-    from observal_cli import config as cli_config
-
-    cfg = cli_config.get_or_exit()
-    server_config = {"server_url": cfg["server_url"], "access_token": cfg["access_token"]}
-
-    stale = find_stale_sessions()
-    if not stale:
-        rprint("[green]No stale sessions found -- all sessions are up to date.[/green]")
-        return
-
-    rprint(f"[dim]Found {len(stale)} stale session(s) to recover...[/dim]\n")
-
-    recovered = 0
-    failed = 0
-    for session in stale:
-        sid = session["session_id"]
-        unsynced = session["file_size"] - session["cursor_offset"]
-        rprint(f"  Recovering {sid[:16]}... ({unsynced} bytes unsynced)")
-        if recover_stale_session(session, server_config):
-            recovered += 1
-        else:
-            failed += 1
-
-    rprint(f"\n[green]Recovered: {recovered}[/green]  [red]Failed: {failed}[/red]")
-
-
-@reconcile_app.command("status")
-def reconcile_status():
-    """Show status of tracked sessions and any stale entries."""
-    state_file = Path.home() / ".observal" / "sync_state.json"
-    if not state_file.exists():
-        rprint("[yellow]No sync state file found (~/.observal/sync_state.json)[/yellow]")
-        return
-
-    try:
-        state = json.loads(state_file.read_text())
-    except Exception:
-        rprint("[red]Failed to parse sync_state.json[/red]")
-        return
-
-    table = Table(title="Session Sync State")
-    table.add_column("Session ID", style="dim")
-    table.add_column("Offset", style="bold")
-    table.add_column("Lines", style="bold")
-    table.add_column("Finalized", style="bold")
-
-    for session_id, cursor in sorted(state.items(), key=lambda x: x[0]):
-        if not isinstance(cursor, dict):
-            continue
-        table.add_row(
-            session_id[:20] + "..." if len(session_id) > 20 else session_id,
-            str(cursor.get("offset", 0)),
-            str(cursor.get("line_count", 0)),
-            "[green]yes[/green]" if cursor.get("finalized") else "[yellow]no[/yellow]",
-        )
-
-    rprint(table)
-
-    stale = find_stale_sessions()
-    if stale:
-        rprint(f"\n[yellow]{len(stale)} stale session(s) detected -- run `observal reconcile run` to recover.[/yellow]")
-
 
 if __name__ == "__main__":
     run_recovery()
