@@ -120,11 +120,7 @@ def _run(home: Path | None = None) -> None:
     except Exception:
         event = {}
 
-    hook_event: str = (
-        event.get("hook_event_name", "")
-        or event.get("hookEventName", "")
-        or event.get("event", "")
-    )
+    hook_event: str = event.get("hook_event_name", "") or event.get("hookEventName", "") or event.get("event", "")
     if not hook_event:
         _h = home if home is not None else Path.home()
         _sf = _h / ".observal" / ".kiro-session"
