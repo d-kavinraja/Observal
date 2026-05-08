@@ -1,4 +1,4 @@
-.PHONY: lint format check test test-adversarial test-eval-completeness test-all hooks clean migrate check-migrations new-migration reset release-major release-feature release-patch
+.PHONY: lint format check test test-adversarial test-eval-completeness test-all hooks clean migrate check-migrations new-migration reset rebuild rebuild-enterprise rebuild-local release-major release-feature release-patch
 
 # ── Linting ──────────────────────────────────────────────
 
@@ -68,6 +68,20 @@ rebuild:  ## Rebuild and restart Docker stack (runs migrations automatically)
 	@cd docker && until docker compose $(COMPOSE_FILES) exec observal-api python -c "import urllib.request; urllib.request.urlopen('http://localhost:8000/health')" >/dev/null 2>&1; do sleep 1; done
 	cd docker && docker compose $(COMPOSE_FILES) restart observal-lb
 	@echo "API is healthy."
+
+rebuild-enterprise:  ## Rebuild in enterprise mode (insights enabled)
+	cd docker && docker compose -f docker-compose.yml -f docker-compose.enterprise.yml up --build -d
+	@echo "Waiting for API to be healthy..."
+	@cd docker && until docker compose -f docker-compose.yml -f docker-compose.enterprise.yml exec observal-api python -c "import urllib.request; urllib.request.urlopen('http://localhost:8000/health')" >/dev/null 2>&1; do sleep 1; done
+	cd docker && docker compose -f docker-compose.yml -f docker-compose.enterprise.yml restart observal-lb
+	@echo "✓ Running in enterprise mode (DEPLOYMENT_MODE=enterprise)"
+
+rebuild-local:  ## Rebuild in local mode (no enterprise features)
+	cd docker && docker compose -f docker-compose.yml up --build -d
+	@echo "Waiting for API to be healthy..."
+	@cd docker && until docker compose -f docker-compose.yml exec observal-api python -c "import urllib.request; urllib.request.urlopen('http://localhost:8000/health')" >/dev/null 2>&1; do sleep 1; done
+	cd docker && docker compose -f docker-compose.yml restart observal-lb
+	@echo "✓ Running in local mode (DEPLOYMENT_MODE=local)"
 
 reset:  ## Nuke all Docker volumes and rebuild from scratch (fresh app, no file changes)
 	cd docker && docker compose $(COMPOSE_FILES) down -v
