@@ -75,6 +75,31 @@ async def ingest_session_lines(
     errors = 0
 
     if not lines:
+        # No JSONL lines to ingest, but still store credits if provided
+        # (Kiro Stop hook sends credits even when there are no new lines).
+        if total_credits is not None and total_credits > 0:
+            credits_row = {
+                "session_id": session_id,
+                "project_id": project_id,
+                "user_id": user_id,
+                "agent_id": agent_id,
+                "agent_version": agent_version,
+                "ide": ide,
+                "line_offset": 0xFFFFFFFF,
+                "line_hash": "",
+                "layer_hash": None,
+                "event_type": "kiro_credits",
+                "timestamp": "1970-01-01 00:00:00.000",
+                "uuid": None,
+                "parent_uuid": None,
+                "tool_name": None,
+                "tool_id": None,
+                "content_preview": f"{total_credits:.6f} credits",
+                "content_length": 0,
+                "raw_line": json.dumps({"kind": "KiroCredits", "credits": total_credits, "model": "Kiro Auto"}),
+                "credits": total_credits,
+            }
+            await insert_session_events([credits_row])
         return IngestResult(ingested=0, skipped=0, errors=0)
 
     # Pre-check: fetch (existing_offsets, existing_hashes) for this batch range.
