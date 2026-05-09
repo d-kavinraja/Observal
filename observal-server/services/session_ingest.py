@@ -16,7 +16,7 @@ import structlog
 
 from services.clickhouse import insert_session_events, query_existing_for_dedup, query_session_event_count
 from services.secrets_redactor import redact_secrets
-from services.session_parsers.ingest_classify import extract_timestamp, get_classifier
+from services.session_parsers.ingest_classify import extract_timestamp, get_classifier, get_extra_rows
 
 logger = structlog.get_logger(__name__)
 
@@ -75,31 +75,10 @@ async def ingest_session_lines(
     errors = 0
 
     if not lines:
-        # No JSONL lines to ingest, but still store credits if provided
-        # (Kiro Stop hook sends credits even when there are no new lines).
-        if total_credits is not None and total_credits > 0:
-            credits_row = {
-                "session_id": session_id,
-                "project_id": project_id,
-                "user_id": user_id,
-                "agent_id": agent_id,
-                "agent_version": agent_version,
-                "ide": ide,
-                "line_offset": 0xFFFFFFFF,
-                "line_hash": "",
-                "layer_hash": None,
-                "event_type": "kiro_credits",
-                "timestamp": "1970-01-01 00:00:00.000",
-                "uuid": None,
-                "parent_uuid": None,
-                "tool_name": None,
-                "tool_id": None,
-                "content_preview": f"{total_credits:.6f} credits",
-                "content_length": 0,
-                "raw_line": json.dumps({"kind": "KiroCredits", "credits": total_credits, "model": "Kiro Auto"}),
-                "credits": total_credits,
-            }
-            await insert_session_events([credits_row])
+        # No JSONL lines -- still store any IDE-specific extra rows (e.g. Kiro credits).
+        extra = get_extra_rows(ide, session_id, project_id, user_id, agent_id, agent_version, total_credits)
+        if extra:
+            await insert_session_events(extra)
         return IngestResult(ingested=0, skipped=0, errors=0)
 
     # Pre-check: fetch (existing_offsets, existing_hashes) for this batch range.
@@ -174,33 +153,10 @@ async def ingest_session_lines(
     if rows:
         await insert_session_events(rows)
 
-    # Kiro only: store a single credits row so the sessions query can aggregate
-    # sum(credits) per session.  We use line_offset=0xFFFFFFFF (max UInt32) so
-    # it never collides with real JSONL lines.  Idempotent: ReplacingMergeTree
-    # deduplicates on (project_id, session_id, line_offset).
-    if total_credits is not None and total_credits > 0:
-        credits_row = {
-            "session_id": session_id,
-            "project_id": project_id,
-            "user_id": user_id,
-            "agent_id": agent_id,
-            "agent_version": agent_version,
-            "ide": ide,
-            "line_offset": 0xFFFFFFFF,
-            "line_hash": "",
-            "layer_hash": None,
-            "event_type": "kiro_credits",
-            "timestamp": "1970-01-01 00:00:00.000",
-            "uuid": None,
-            "parent_uuid": None,
-            "tool_name": None,
-            "tool_id": None,
-            "content_preview": f"{total_credits:.6f} credits",
-            "content_length": 0,
-            "raw_line": json.dumps({"kind": "KiroCredits", "credits": total_credits, "model": "Kiro Auto"}),
-            "credits": total_credits,
-        }
-        await insert_session_events([credits_row])
+    # Store any IDE-specific extra rows (e.g. Kiro credits summary row).
+    extra = get_extra_rows(ide, session_id, project_id, user_id, agent_id, agent_version, total_credits)
+    if extra:
+        await insert_session_events(extra)
 
     return IngestResult(ingested=ingested, skipped=skipped, errors=errors)
 
