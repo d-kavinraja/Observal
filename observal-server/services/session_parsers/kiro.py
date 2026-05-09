@@ -277,9 +277,7 @@ def extra_ingest_rows(
             "tool_id": None,
             "content_preview": f"{total_credits:.6f} credits",
             "content_length": 0,
-            "raw_line": json.dumps(
-                {"kind": "KiroCredits", "credits": total_credits, "model": "Kiro Auto"}
-            ),
+            "raw_line": json.dumps({"kind": "KiroCredits", "credits": total_credits, "model": "Kiro Auto"}),
             "credits": total_credits,
         }
     ]

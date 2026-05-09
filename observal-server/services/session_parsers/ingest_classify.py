@@ -355,7 +355,9 @@ def _no_extra_rows(*_args, **_kwargs) -> list[dict]:
     return []
 
 
-_EXTRA_ROWS_HANDLERS: dict[str, object] = {
+_ExtraRowsFn = Callable[..., list[dict]]
+
+_EXTRA_ROWS_HANDLERS: dict[str, _ExtraRowsFn] = {
     "kiro": _kiro_extra_rows,
     "claude-code": _no_extra_rows,
 }
@@ -379,6 +381,4 @@ def get_extra_rows(
 
     parser_id = IDE_REGISTRY.get(ide, {}).get("session_parser", "claude-code")
     handler = _EXTRA_ROWS_HANDLERS.get(parser_id, _no_extra_rows)
-    return handler(  # type: ignore[call-arg]
-        session_id, project_id, user_id, agent_id, agent_version, ide, total_credits
-    )
+    return handler(session_id, project_id, user_id, agent_id, agent_version, ide, total_credits)
