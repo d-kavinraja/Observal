@@ -39,7 +39,8 @@ jobs:
         run: |
           echo "Waiting for API health check..."
           for i in $(seq 1 30); do
-            if curl -sf http://localhost:8000/health && echo "✓ API is healthy"; then
+            if curl -sf http://localhost:8000/health > /dev/null 2>&1; then
+              echo "✓ API is healthy"
               exit 0
             fi
             echo "[$i/30] Waiting for API to be ready..."
