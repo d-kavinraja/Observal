@@ -38,7 +38,6 @@ jobs:
   # ── Preflight: detect release commit and create tag ────────
   preflight:
     name: Preflight checks
-    if: github.repository == 'BlazeUp-AI/Observal'
     runs-on: ubuntu-latest
     outputs:
       version: ${{ steps.version.outputs.version }}
