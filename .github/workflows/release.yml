@@ -38,6 +38,7 @@ jobs:
   # ── Preflight: detect release commit and create tag ────────
   preflight:
     name: Preflight checks
+    if: github.repository == 'BlazeUp-AI/Observal' || (vars.RELEASE_APP_CLIENT_ID != '' && secrets.RELEASE_APP_PRIVATE_KEY != '')
     runs-on: ubuntu-latest
     outputs:
       version: ${{ steps.version.outputs.version }}
