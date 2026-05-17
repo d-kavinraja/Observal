@@ -66,6 +66,7 @@ jobs:
         run: uv run --no-project scripts/check_vulnerabilities.py sbom-python.cdx.json sbom-node.cdx.json
 
       - name: Ensure labels exist
+        if: github.event.repository.has_issues
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: |
@@ -73,7 +74,7 @@ jobs:
           gh label create "automated" --color "0E8A16" --description "Created by CI automation" 2>/dev/null || true
 
       - name: Post vulnerability summary
-        if: hashFiles('vulnerability-report.md') != ''
+        if: hashFiles('vulnerability-report.md') != '' && github.event.repository.has_issues
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: |
