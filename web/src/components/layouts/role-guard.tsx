@@ -7,8 +7,9 @@
 import { useRoleGuard, type Role } from "@/hooks/use-role-guard";
 
 export function RoleGuard({ minRole, children }: { minRole: Role; children: React.ReactNode }) {
-  useRoleGuard(minRole);
-  // Render children immediately to prevent hydration mismatch
-  // The useRoleGuard hook handles redirects via side effects
+  const { ready } = useRoleGuard(minRole);
+  // Don't render anything until role is confirmed to prevent flicker
+  // of protected content before redirect or permission error
+  if (!ready) return null;
   return <>{children}</>;
 }

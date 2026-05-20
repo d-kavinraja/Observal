@@ -6,9 +6,10 @@
 import { useAuthGuard, useOptionalAuth } from "@/hooks/use-auth";
 
 export function AuthGuard({ children }: { children: React.ReactNode }) {
-  useAuthGuard();
-  // Render children immediately to prevent hydration mismatch
-  // The useAuthGuard hook handles redirects via side effects
+  const { ready } = useAuthGuard();
+  // Don't render anything until auth state is confirmed to prevent flicker
+  // of protected content before redirect
+  if (!ready) return null;
   return <>{children}</>;
 }
 
