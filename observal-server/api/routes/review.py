@@ -11,6 +11,7 @@ import uuid
 from datetime import UTC, datetime
 
 from fastapi import APIRouter, Depends, HTTPException, Query
+from loguru import logger as optic
 from pydantic import BaseModel
 from sqlalchemy import String, cast, or_, select, update
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -50,6 +51,7 @@ VERSION_MODELS = {
 
 async def _find_listing(listing_id: str, db: AsyncSession):
     """Find a listing by ID, prefix, or name across all component types."""
+    optic.debug("_find_listing: listing_id={}", listing_id)
     hits = []
     for listing_type, model in LISTING_MODELS.items():
         try:
@@ -81,6 +83,7 @@ async def _find_listing(listing_id: str, db: AsyncSession):
 
 async def _check_agent_components_ready(components, db: AsyncSession) -> tuple[bool, list[dict]]:
     """Check if all of an agent version's components are approved."""
+    optic.debug("_check_agent_components_ready: components={}", components)
     if not components:
         return True, []
 
@@ -118,6 +121,7 @@ async def _query_pending_agents(db: AsyncSession) -> list[dict]:
     # Find agents that have ANY pending version (not just latest_version_id).
     # This ensures version updates appear in the review queue after the first
     # version is approved.
+    optic.debug("_query_pending_agents called")
     pending_versions_stmt = (
         select(AgentVersion).where(AgentVersion.status == AgentStatus.pending).order_by(AgentVersion.created_at.desc())
     )
@@ -172,6 +176,7 @@ async def _query_pending_agents(db: AsyncSession) -> list[dict]:
 
 
 async def _query_pending_components(db: AsyncSession, type_filter: str | None = None) -> list[dict]:
+    optic.debug("_query_pending_components: type_filter={}", type_filter)
     models_to_query = (
         {type_filter: LISTING_MODELS[type_filter]} if type_filter and type_filter in LISTING_MODELS else LISTING_MODELS
     )
@@ -274,6 +279,7 @@ async def list_pending(
     db: AsyncSession = Depends(get_db),
     current_user: User = Depends(require_role(UserRole.reviewer)),
 ):
+    optic.debug("review.list_pending: type={}", type)
     if tab == "agents":
         result = await _query_pending_agents(db)
         await audit(current_user, "review.list", detail="tab=agents")
@@ -383,6 +389,7 @@ _DETAIL_FIELDS: dict[str, list[str]] = {
 
 
 def _safe_serialize(val: object) -> object:
+    optic.debug("_safe_serialize: val={}", val)
     if isinstance(val, uuid.UUID):
         return str(val)
     if hasattr(val, "isoformat"):
@@ -394,6 +401,7 @@ def _safe_serialize(val: object) -> object:
 
 def _serialize_listing_detail(listing_type: str, listing) -> dict:
     # Find the pending version if one exists (for reviews, we want pending content)
+    optic.debug("_serialize_listing_detail: listing_type={}, listing={}", listing_type, listing)
     pending_ver = None
     if hasattr(listing, "versions"):
         pending_ver = next(
@@ -440,6 +448,7 @@ async def get_review(
     db: AsyncSession = Depends(get_db),
     current_user: User = Depends(require_role(UserRole.reviewer)),
 ):
+    optic.debug("review.get_review: listing_id={}", listing_id)
     listing_type, listing = await _find_listing(listing_id, db)
 
     if listing:
@@ -540,6 +549,7 @@ async def approve(
     db: AsyncSession = Depends(get_db),
     current_user: User = Depends(require_role(UserRole.reviewer)),
 ):
+    optic.debug("review.approve: listing_id={}", listing_id)
     listing_type, listing = await _find_listing(listing_id, db)
     if not listing:
         raise HTTPException(status_code=404, detail="Listing not found")
@@ -594,6 +604,7 @@ async def reject(
     db: AsyncSession = Depends(get_db),
     current_user: User = Depends(require_role(UserRole.reviewer)),
 ):
+    optic.debug("review.reject: listing_id={}, req={}", listing_id, req)
     listing_type, listing = await _find_listing(listing_id, db)
     if not listing:
         raise HTTPException(status_code=404, detail="Listing not found")
@@ -653,6 +664,7 @@ async def approve_agent(
     db: AsyncSession = Depends(get_db),
     current_user: User = Depends(require_role(UserRole.reviewer)),
 ):
+    optic.debug("review.approve_agent: agent_id={}, req={}", agent_id, req)
     from services.versioning import parse_semver
 
     agent = (await db.execute(select(Agent).where(Agent.id == agent_id))).scalar_one_or_none()
@@ -731,6 +743,7 @@ async def reject_agent(
     db: AsyncSession = Depends(get_db),
     current_user: User = Depends(require_role(UserRole.reviewer)),
 ):
+    optic.debug("review.reject_agent: agent_id={}, req={}", agent_id, req)
     agent = (await db.execute(select(Agent).where(Agent.id == agent_id))).scalar_one_or_none()
     if not agent:
         raise HTTPException(status_code=404, detail="Agent not found")
@@ -785,6 +798,7 @@ async def approve_bundle(
     db: AsyncSession = Depends(get_db),
     current_user: User = Depends(require_role(UserRole.reviewer)),
 ):
+    optic.debug("review.approve_bundle: bundle_id={}", bundle_id)
     bundle = (await db.execute(select(ComponentBundle).where(ComponentBundle.id == bundle_id))).scalar_one_or_none()
     if not bundle:
         raise HTTPException(status_code=404, detail="Bundle not found")
@@ -821,6 +835,7 @@ async def reject_bundle(
     db: AsyncSession = Depends(get_db),
     current_user: User = Depends(require_role(UserRole.reviewer)),
 ):
+    optic.debug("review.reject_bundle: bundle_id={}, req={}", bundle_id, req)
     bundle = (await db.execute(select(ComponentBundle).where(ComponentBundle.id == bundle_id))).scalar_one_or_none()
     if not bundle:
         raise HTTPException(status_code=404, detail="Bundle not found")
@@ -861,6 +876,7 @@ async def get_related_skills(
     db: AsyncSession = Depends(get_db),
     current_user: User = Depends(require_role(UserRole.reviewer)),
 ):
+    optic.debug("review.get_related_skills: listing_id={}", listing_id)
     listing_type, listing = await _find_listing(listing_id, db)
     if not listing or listing_type != "mcp":
         return {"skills": []}
@@ -930,6 +946,7 @@ async def approve_mcp_with_skills(
     db: AsyncSession = Depends(get_db),
     current_user: User = Depends(require_role(UserRole.reviewer)),
 ):
+    optic.debug("review.approve_mcp_with_skills: listing_id={}, req={}", listing_id, req)
     listing_type, listing = await _find_listing(listing_id, db)
     if not listing:
         raise HTTPException(status_code=404, detail="Listing not found")
