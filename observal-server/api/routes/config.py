@@ -6,6 +6,7 @@
 from urllib.parse import urlparse
 
 from fastapi import APIRouter, Depends, Request
+from loguru import logger as optic
 from sqlalchemy import select
 
 from api.deps import get_db
@@ -19,6 +20,7 @@ router = APIRouter(prefix="/api/v1/config", tags=["config"])
 @router.get("/version")
 async def get_version():
     """Server version and compatibility info. No auth required."""
+    optic.debug("config.get_version called")
     import services.dynamic_settings as ds
 
     max_cli = await ds.get("misc.max_cli_version")
@@ -38,6 +40,7 @@ async def get_version():
 
 async def derive_endpoints(request: Request | None = None) -> dict[str, str]:
     """Derive all endpoint URLs from settings, falling back to request context."""
+    optic.debug("derive_endpoints called")
     import services.dynamic_settings as ds
 
     public_url_setting = await ds.get("deployment.public_url")
@@ -63,12 +66,14 @@ async def derive_endpoints(request: Request | None = None) -> dict[str, str]:
 @router.get("/endpoints")
 async def get_endpoints(request: Request):
     """Endpoint discovery: returns all service URLs. No auth required."""
+    optic.debug("config.derive_endpoints called")
     return await derive_endpoints(request)
 
 
 @router.get("/public")
 async def get_public_config(db=Depends(get_db)):
     """Public configuration for frontend. No auth required."""
+    optic.debug("config.get_public_config called")
     import services.dynamic_settings as ds
 
     # Deployment mode is a boot-time env var (controls route registration)
