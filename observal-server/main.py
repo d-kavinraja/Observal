@@ -69,9 +69,11 @@ from models.user import User
 from services.cache import close_cache, init_cache
 from services.clickhouse import init_clickhouse
 from services.crypto import init_key_manager
+from services.optic import setup_optic
 from services.redis import close as close_redis
 
 setup_logging()
+setup_optic(mode=settings.DEPLOYMENT_MODE)
 
 
 async def _ensure_columns(conn):
