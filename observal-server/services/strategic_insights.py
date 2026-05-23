@@ -14,6 +14,7 @@ from __future__ import annotations
 import json
 
 import structlog
+from loguru import logger as optic
 
 from services.insights import call_model
 
@@ -96,6 +97,7 @@ async def generate_strategic_insights(metrics_data: dict) -> dict:
     Returns:
         Dict with structured strategic recommendations.
     """
+    optic.debug("strategic_insights: generating")
     import services.dynamic_settings as ds
 
     configured_model = await ds.get("eval.model_name")
@@ -122,6 +124,7 @@ async def generate_strategic_insights(metrics_data: dict) -> dict:
 
 def _build_data_block(metrics: dict) -> str:
     """Build the data block string from collected metrics."""
+    optic.debug("_build_data_block: metrics={}", metrics)
     sections = []
 
     if metrics.get("adoption"):
