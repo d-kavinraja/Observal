@@ -13,6 +13,7 @@ import time
 
 import httpx
 import typer
+from loguru import logger
 from rich import print as rprint
 from rich.table import Table
 
@@ -89,6 +90,7 @@ def review_list(
 
         observal admin review list --tab agents --output json
     """
+    logger.debug("review_list: type_filter={}", type_filter)
     params = {}
     if type_filter:
         params["type"] = type_filter
