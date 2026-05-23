@@ -13,6 +13,7 @@ from datetime import UTC, datetime
 from pathlib import Path
 
 import typer
+from loguru import logger
 from rich import print as rprint
 
 BACKUP_DIR = Path.home() / ".observal" / "backups"
@@ -201,6 +202,7 @@ def register_use(app: typer.Typer):
             observal use ./local-profile
             observal use default
         """
+        logger.debug("use_profile: profile={}, ref={}", profile, ref)
         state = _load_state()
 
         # Restore default (previous backup)
