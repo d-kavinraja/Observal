@@ -19,6 +19,8 @@ import json
 import logging
 from pathlib import Path
 
+from loguru import logger as optic
+
 from observal_cli import config
 from observal_cli.ide_specs.claude_code_hooks_spec import (
     HOOKS_SPEC_VERSION,
@@ -132,6 +134,7 @@ def reconcile(
     Returns list of change descriptions (empty = already up to date).
     If dry_run=True, computes changes but does not write.
     """
+    optic.debug("settings reconcile: dry_run={}, desired_hooks={}", dry_run, len(desired_hooks))
     settings = _load_claude_settings()
     all_changes: list[str] = []
 
