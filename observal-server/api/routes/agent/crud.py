@@ -6,6 +6,7 @@
 import uuid  # noqa: TC003
 
 from fastapi import Depends, HTTPException, Query, Response
+from loguru import logger as optic
 from sqlalchemy import func, select, update
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -58,6 +59,7 @@ async def create_agent(
     db: AsyncSession = Depends(get_db),
     current_user: User = Depends(require_role(UserRole.user)),
 ):
+    optic.debug("agent create")
     if not req.description:
         raise HTTPException(status_code=422, detail="Description must not be empty")
 
@@ -236,6 +238,7 @@ async def list_agents(
     db: AsyncSession = Depends(get_db),
     current_user: User | None = Depends(optional_current_user),
 ):
+    optic.debug("agent list")
     from models.feedback import Feedback
 
     is_admin = False
@@ -348,6 +351,7 @@ async def my_agents(
     db: AsyncSession = Depends(get_db),
     current_user: User = Depends(require_role(UserRole.user)),
 ):
+    optic.debug("my_agents called")
     from models.feedback import Feedback
 
     stmt = (
@@ -400,6 +404,7 @@ async def archived_agents(
     db: AsyncSession = Depends(get_db),
     current_user: User = Depends(require_role(UserRole.admin)),
 ):
+    optic.debug("archived_agents called")
     from models.feedback import Feedback
 
     stmt = (
@@ -464,6 +469,7 @@ async def get_agent(
     db: AsyncSession = Depends(get_db),
     current_user: User | None = Depends(optional_current_user),
 ):
+    optic.debug("agent get")
     agent = await _load_agent(
         db,
         agent_id,
@@ -495,6 +501,7 @@ async def version_suggestions(
     db: AsyncSession = Depends(get_db),
     current_user: User | None = Depends(optional_current_user),
 ):
+    optic.debug("version_suggestions: agent_id={}", agent_id)
     agent = await _load_agent(
         db,
         agent_id,
@@ -526,6 +533,7 @@ async def update_agent(
     db: AsyncSession = Depends(get_db),
     current_user: User = Depends(require_role(UserRole.user)),
 ):
+    optic.debug("update_agent: agent_id={}", agent_id)
     agent = await _load_agent(db, agent_id, prefer_user_id=current_user.id, org_id=current_user.org_id)
     if not agent:
         raise HTTPException(status_code=404, detail="Agent not found")
@@ -702,6 +710,7 @@ async def delete_agent(
     db: AsyncSession = Depends(get_db),
     current_user: User = Depends(require_role(UserRole.user)),
 ):
+    optic.debug("agent delete")
     from models.feedback import Feedback
 
     agent = await _load_agent(
@@ -766,6 +775,7 @@ async def archive_agent(
     db: AsyncSession = Depends(get_db),
     current_user: User = Depends(require_role(UserRole.user)),
 ):
+    optic.debug("archive_agent: agent_id={}", agent_id)
     agent = await _load_agent(db, agent_id, prefer_user_id=current_user.id, org_id=current_user.org_id)
     if not agent:
         raise HTTPException(status_code=404, detail="Agent not found")
@@ -805,6 +815,7 @@ async def unarchive_agent(
     db: AsyncSession = Depends(get_db),
     current_user: User = Depends(require_role(UserRole.user)),
 ):
+    optic.debug("unarchive_agent: agent_id={}", agent_id)
     agent = await _load_agent(
         db, agent_id, prefer_user_id=current_user.id, org_id=current_user.org_id, include_all_statuses=True
     )
