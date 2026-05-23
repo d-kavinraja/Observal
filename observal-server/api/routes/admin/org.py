@@ -7,6 +7,7 @@ import json
 import logging
 
 from fastapi import Depends, HTTPException
+from loguru import logger as optic
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
@@ -31,6 +32,9 @@ async def get_security_events(
     current_user: User = Depends(require_role(UserRole.admin)),
 ):
     """Query the security events audit log from ClickHouse."""
+    optic.debug(
+        "org.get_security_events: event_type={}, severity={}, actor_email={}", event_type, severity, actor_email
+    )
     from services.clickhouse import _query
 
     conditions = ["1 = 1"]
@@ -72,6 +76,7 @@ async def get_trace_privacy(
     current_user: User = Depends(require_role(UserRole.admin)),
 ):
     """Get the trace privacy setting for the current user's organization."""
+    optic.debug("org.get_trace_privacy called")
     if not current_user.org_id:
         await audit(current_user, "admin.trace_privacy.view", "trace_privacy")
         return {"trace_privacy": False}
@@ -95,6 +100,7 @@ async def set_trace_privacy(
     When enabled, all roles below super-admin can only see their own
     traces.  Super-admins always retain full visibility.
     """
+    optic.debug("org.set_trace_privacy: req={}", req)
     enabled = bool(req.get("trace_privacy", False))
 
     if not current_user.org_id:
@@ -140,6 +146,7 @@ async def get_registered_agents_only(
     current_user: User = Depends(require_role(UserRole.user)),
 ):
     """Get the registered-agents-only setting for the current user's organization."""
+    optic.debug("org.get_registered_agents_only called")
     if not current_user.org_id:
         await audit(current_user, "admin.registered_agents_only.view", "registered_agents_only")
         return {"registered_agents_only": False}
@@ -163,6 +170,7 @@ async def set_registered_agents_only(
     When enabled, only registered (active) agents are traced.
     Unregistered agent telemetry is stored as metadata-only (no content).
     """
+    optic.debug("org.set_registered_agents_only: req={}", req)
     enabled = bool(req.get("registered_agents_only", False))
 
     if not current_user.org_id:
@@ -206,6 +214,7 @@ async def set_registered_agents_only(
 @router.post("/cache/clear")
 async def clear_cache(current_user: User = Depends(require_role(UserRole.admin))):
     """Clear all cached dashboard and OTEL responses."""
+    optic.debug("org.clear_cache: user_id={}", current_user.id)
     from services.cache import invalidate_all
 
     deleted = await invalidate_all()
@@ -219,6 +228,7 @@ async def fix_agent_org(
     current_user: User = Depends(require_role(UserRole.admin)),
 ):
     """Fix agents missing owner_org_id by setting it from the creator's org."""
+    optic.debug("org.fix_agent_org called")
     from models.agent import Agent, AgentVisibility
 
     result = await db.execute(select(Agent).where(Agent.owner_org_id.is_(None)))
