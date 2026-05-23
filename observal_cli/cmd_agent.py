@@ -16,6 +16,7 @@ from pathlib import Path
 
 import typer
 import yaml
+from loguru import logger
 from rich import print as rprint
 from rich.panel import Panel
 from rich.table import Table
@@ -122,6 +123,7 @@ def agent_create(
       observal agent create --name my-agent --prompt "You are..." --model claude-sonnet-4
       observal agent create --name my-agent --prompt-file ./PROMPT.md --model claude-sonnet-4 --ide kiro --ide claude-code
     """
+    logger.debug("agent_create: from_file={}", from_file)
     # ── Path A: From JSON file ───────────────────────────────
     if from_file:
         import json
