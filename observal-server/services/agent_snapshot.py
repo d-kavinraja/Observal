@@ -29,6 +29,7 @@ if TYPE_CHECKING:
     from sqlalchemy.ext.asyncio import AsyncSession
 
     from models.agent import AgentVersion
+from loguru import logger
 
 _LISTING_MODELS = {
     "mcp": McpListing,
@@ -41,6 +42,7 @@ _LISTING_MODELS = {
 
 def _normalise_models_by_ide(value: object) -> dict[str, str]:
     """Coerce ``models_by_ide`` into a plain dict for YAML serialisation."""
+    logger.debug("_normalise_models_by_ide: value={}", value)
     if not isinstance(value, dict):
         return {}
     return {str(k): str(v) for k, v in value.items() if v}
@@ -54,6 +56,7 @@ async def _resolve_component_details(ver: AgentVersion, db: AsyncSession) -> lis
     when a freshly created version's components were added in the same
     session but the back-reference wasn't synchronously synced.
     """
+    logger.debug("_resolve_component_details: ver={}", ver)
     rows = (
         (
             await db.execute(
@@ -101,6 +104,7 @@ async def build_yaml_snapshot(ver: AgentVersion, db: AsyncSession) -> str:
     didn't override anything) so a reviewer can trust an empty section
     means "no per-IDE overrides", not "missing data".
     """
+    logger.debug("build_yaml_snapshot: ver={}", ver)
     components = await _resolve_component_details(ver, db)
     data: dict = {
         "version": ver.version,
