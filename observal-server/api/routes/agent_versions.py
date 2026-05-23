@@ -19,6 +19,7 @@ import logging
 from datetime import UTC, datetime
 
 from fastapi import APIRouter, Depends, HTTPException, Query
+from loguru import logger as optic
 from sqlalchemy import func, select
 from sqlalchemy.ext.asyncio import AsyncSession  # noqa: TC002
 
@@ -52,6 +53,7 @@ agent_version_router = APIRouter()
 
 def _version_to_summary(ver: AgentVersion) -> dict:
     """Serialize an AgentVersion to a list-view dict."""
+    optic.debug("_version_to_summary: ver={}", ver)
     return {
         "id": str(ver.id),
         "agent_id": str(ver.agent_id),
@@ -71,6 +73,7 @@ def _version_to_summary(ver: AgentVersion) -> dict:
 
 def _version_to_detail(ver: AgentVersion) -> dict:
     """Serialize an AgentVersion to a full-detail dict."""
+    optic.debug("_version_to_detail: ver={}", ver)
     d = _version_to_summary(ver)
     d.update(
         {
@@ -98,12 +101,13 @@ def _version_to_detail(ver: AgentVersion) -> dict:
 
 
 # ---------------------------------------------------------------------------
-# Standalone async functions — exposed for direct testing
+# Standalone async functions - exposed for direct testing
 # ---------------------------------------------------------------------------
 
 
 async def _load_agent(db: AsyncSession, agent_id: str) -> Agent | None:
     """Thin wrapper that delegates to the route-level _load_agent."""
+    optic.debug("_load_agent: agent_id={}", agent_id)
     from api.routes.agent import _load_agent as _base_load
 
     return await _base_load(db, agent_id)
@@ -116,6 +120,7 @@ async def _list_agent_versions(
     db: AsyncSession,
     current_user: User,
 ) -> dict:
+    optic.debug("_list_agent_versions: agent_id={}, page={}", agent_id, page)
     agent = await _load_agent(db, agent_id)
     if not agent:
         raise HTTPException(status_code=404, detail="Agent not found")
@@ -152,6 +157,7 @@ async def _get_agent_version(
     db: AsyncSession,
     current_user: User,
 ) -> dict:
+    optic.debug("_get_agent_version: agent_id={}, version={}", agent_id, version)
     agent = await _load_agent(db, agent_id)
     if not agent:
         raise HTTPException(status_code=404, detail="Agent not found")
@@ -185,6 +191,7 @@ async def _create_agent_version(
     current_user: User,
 ) -> dict:
     # Validate semver (guard against mock objects in tests that bypass the schema validator)
+    optic.debug("_create_agent_version: agent_id={}", agent_id)
     if not validate_semver(req.version):
         raise HTTPException(status_code=422, detail=f"Invalid semver string: {req.version!r}")
 
@@ -324,7 +331,7 @@ async def _create_agent_version(
             failed_ides.append(ide)
     ver.ide_configs = ide_configs or {}
 
-    # Do NOT update latest_version_id — that happens on approval
+    # Do NOT update latest_version_id - that happens on approval
     await db.commit()
 
     await audit(
@@ -368,6 +375,7 @@ async def _review_agent_version(
     db: AsyncSession,
     current_user: User,
 ) -> dict:
+    optic.debug("_review_agent_version: agent_id={}, version={}", agent_id, version)
     agent = await _load_agent(db, agent_id)
     if not agent:
         raise HTTPException(status_code=404, detail="Agent not found")
@@ -432,6 +440,7 @@ async def _get_agent_ide_config(
     db: AsyncSession,
     current_user: User,
 ) -> dict:
+    optic.debug("_get_agent_ide_config: agent_id={}, version={}", agent_id, version)
     agent = await _load_agent(db, agent_id)
     if not agent:
         raise HTTPException(status_code=404, detail="Agent not found")
@@ -448,7 +457,7 @@ async def _get_agent_ide_config(
     if not ver:
         raise HTTPException(status_code=404, detail="Version not found")
 
-    # Serve pre-generated config only — no generation at request time (spec requirement #8)
+    # Serve pre-generated config only - no generation at request time (spec requirement #8)
     if not ver.ide_configs or ide not in ver.ide_configs:
         raise HTTPException(
             status_code=404,
@@ -465,6 +474,7 @@ async def _get_version_diff(
     db: AsyncSession,
     current_user: User,
 ) -> dict:
+    optic.debug("_get_version_diff: agent_id={}, v1={}", agent_id, v1)
     agent = await _load_agent(db, agent_id)
     if not agent:
         raise HTTPException(status_code=404, detail="Agent not found")
@@ -489,6 +499,7 @@ async def _get_version_diff(
     from services.agent_snapshot import build_yaml_snapshot
 
     async def _snapshot_text(ver: AgentVersion) -> str:
+        optic.debug("_snapshot_text: ver={}", ver)
         if ver.yaml_snapshot:
             return ver.yaml_snapshot
         return await build_yaml_snapshot(ver, db)
@@ -563,6 +574,7 @@ async def list_agent_versions(
     db: AsyncSession = Depends(get_db),
     current_user: User = Depends(require_role(UserRole.user)),
 ):
+    optic.debug("agent versions list")
     return await _list_agent_versions(
         agent_id=agent_id,
         page=page,
@@ -579,6 +591,7 @@ async def get_agent_version(
     db: AsyncSession = Depends(get_db),
     current_user: User = Depends(require_role(UserRole.user)),
 ):
+    optic.debug("get_agent_version: agent_id={}, version={}", agent_id, version)
     return await _get_agent_version(
         agent_id=agent_id,
         version=version,
@@ -594,6 +607,7 @@ async def create_agent_version(
     db: AsyncSession = Depends(get_db),
     current_user: User = Depends(require_role(UserRole.user)),
 ):
+    optic.debug("create_agent_version: agent_id={}", agent_id)
     return await _create_agent_version(
         agent_id=agent_id,
         req=req,
@@ -610,6 +624,7 @@ async def review_agent_version(
     db: AsyncSession = Depends(get_db),
     current_user: User = Depends(require_role(UserRole.reviewer)),
 ):
+    optic.debug("review_agent_version: agent_id={}, version={}", agent_id, version)
     return await _review_agent_version(
         agent_id=agent_id,
         version=version,
@@ -627,6 +642,7 @@ async def get_agent_ide_config(
     db: AsyncSession = Depends(get_db),
     current_user: User = Depends(require_role(UserRole.user)),
 ):
+    optic.debug("get_agent_ide_config: agent_id={}, version={}", agent_id, version)
     return await _get_agent_ide_config(
         agent_id=agent_id,
         version=version,
@@ -644,6 +660,7 @@ async def get_version_diff(
     db: AsyncSession = Depends(get_db),
     current_user: User = Depends(require_role(UserRole.user)),
 ):
+    optic.debug("get_version_diff: agent_id={}, v1={}", agent_id, v1)
     return await _get_version_diff(
         agent_id=agent_id,
         v1=v1,
