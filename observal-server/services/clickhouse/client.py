@@ -7,6 +7,7 @@ from urllib.parse import urlparse
 
 import httpx
 import structlog
+from loguru import logger as optic
 from tenacity import retry, retry_if_exception_type, stop_after_attempt, wait_exponential
 
 from config import settings
@@ -74,6 +75,7 @@ async def _query(sql: str, params: dict | None = None, *, data: str | None = Non
 
 async def clickhouse_health() -> bool:
     """Check ClickHouse connectivity. Returns True if healthy."""
+    optic.debug("clickhouse_health check")
     try:
         resp = await _query("SELECT 1")
         return resp.status_code == 200
