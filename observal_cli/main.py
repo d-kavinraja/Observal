@@ -85,6 +85,10 @@ def main(
     debug: bool = typer.Option(False, "--debug", help="Debug logging"),
 ):
     """Observal: MCP Server & Agent Registry CLI"""
+    from observal_cli.optic import setup_optic
+
+    setup_optic(debug=debug, verbose=verbose)
+
     if debug:
         logging.basicConfig(level=logging.DEBUG, format="%(levelname)s %(name)s: %(message)s")
     elif verbose:
@@ -98,6 +102,7 @@ from observal_cli.cmd_auth import auth_app, register_config
 from observal_cli.cmd_component import component_app
 from observal_cli.cmd_doctor import doctor_app
 from observal_cli.cmd_hook import hook_app
+from observal_cli.cmd_logs import logs_app
 from observal_cli.cmd_mcp import mcp_app
 from observal_cli.cmd_migrate import migrate_app
 from observal_cli.cmd_models import models_app
@@ -158,6 +163,7 @@ app.add_typer(self_app, name="self")
 app.add_typer(doctor_app, name="doctor")
 app.add_typer(support_app, name="support")
 app.add_typer(migrate_app, name="migrate")
+app.add_typer(logs_app, name="logs")
 
 # Server management (embedded + Docker)
 try:
