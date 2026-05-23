@@ -15,6 +15,7 @@ import re
 from datetime import UTC, datetime
 
 from fastapi import APIRouter, Depends, HTTPException, Query
+from loguru import logger as optic
 from sqlalchemy import func, select
 from sqlalchemy.ext.asyncio import AsyncSession  # noqa: TC002
 
@@ -31,12 +32,14 @@ SEMVER_RE = re.compile(r"^\d+\.\d+\.\d+(-[a-zA-Z0-9.]+)?$")
 
 def _parse_semver(v: str) -> tuple[int, ...]:
     """Parse 'X.Y.Z' or 'X.Y.Z-pre' into (X, Y, Z) for comparison."""
+    optic.debug("_parse_semver: v={}", v)
     base = v.split("-", 1)[0]
     return tuple(int(p) for p in base.split("."))
 
 
 def _version_to_dict(v, component_type: str) -> dict:
     """Serialize a version ORM object to a plain dict for API responses."""
+    optic.debug("_version_to_dict: v={}, component_type={}", v, component_type)
     d = {
         "id": str(v.id),
         "listing_id": str(v.listing_id),
@@ -72,6 +75,7 @@ async def _list_versions(
     db: AsyncSession,
     current_user: User,
 ) -> dict:
+    optic.debug("_list_versions: listing_id={}, page={}", listing_id, page)
     listing = await resolve_listing(listing_model, listing_id, db)
     if not listing:
         raise HTTPException(status_code=404, detail="Listing not found")
@@ -107,6 +111,7 @@ async def _get_version(
     db: AsyncSession,
     current_user: User,
 ) -> dict:
+    optic.debug("_get_version: listing_id={}, version={}", listing_id, version)
     listing = await resolve_listing(listing_model, listing_id, db)
     if not listing:
         raise HTTPException(status_code=404, detail="Listing not found")
@@ -132,6 +137,7 @@ async def _publish_version(
     db: AsyncSession,
     current_user: User,
 ) -> dict:
+    optic.debug("_publish_version: listing_id={}, listing_model={}", listing_id, listing_model)
     if not SEMVER_RE.match(req.version):
         raise HTTPException(status_code=422, detail=f"Invalid semver string: {req.version!r}")
 
@@ -186,6 +192,7 @@ async def _version_suggestions(
     db: AsyncSession,
     current_user: User,
 ) -> dict:
+    optic.debug("_version_suggestions: listing_id={}, listing_model={}", listing_id, listing_model)
     listing = await resolve_listing(listing_model, listing_id, db)
     if not listing:
         raise HTTPException(status_code=404, detail="Listing not found")
@@ -206,6 +213,7 @@ async def _review_version(
     db: AsyncSession,
     current_user: User,
 ) -> dict:
+    optic.debug("_review_version: listing_id={}, version={}", listing_id, version)
     listing = await resolve_listing(listing_model, listing_id, db)
     if not listing:
         raise HTTPException(status_code=404, detail="Listing not found")
@@ -268,6 +276,7 @@ def create_version_router(
 ) -> APIRouter:
     """Return an APIRouter with 4 version endpoints for the given component type."""
 
+    optic.debug("create_version_router: component_type={}, listing_model={}", component_type, listing_model)
     router = APIRouter(tags=[f"{component_type}-versions"])
 
     @router.get("/{listing_id}/versions")
@@ -278,6 +287,7 @@ def create_version_router(
         db: AsyncSession = Depends(get_db),
         current_user: User = Depends(require_role(UserRole.user)),
     ):
+        optic.debug("list_versions: listing_id={}, page={}", listing_id, page)
         return await _list_versions(
             listing_id=listing_id,
             page=page,
@@ -296,6 +306,7 @@ def create_version_router(
         db: AsyncSession = Depends(get_db),
         current_user: User = Depends(require_role(UserRole.user)),
     ):
+        optic.debug("get_version: listing_id={}, version={}", listing_id, version)
         return await _get_version(
             listing_id=listing_id,
             version=version,
@@ -313,6 +324,7 @@ def create_version_router(
         db: AsyncSession = Depends(get_db),
         current_user: User = Depends(require_role(UserRole.user)),
     ):
+        optic.debug("publish_version: listing_id={}", listing_id)
         return await _publish_version(
             listing_id=listing_id,
             req=req,
@@ -331,6 +343,7 @@ def create_version_router(
         db: AsyncSession = Depends(get_db),
         current_user: User = Depends(require_role(UserRole.reviewer)),
     ):
+        optic.debug("review_version: listing_id={}, version={}", listing_id, version)
         return await _review_version(
             listing_id=listing_id,
             version=version,
@@ -348,6 +361,7 @@ def create_version_router(
         db: AsyncSession = Depends(get_db),
         current_user: User = Depends(require_role(UserRole.user)),
     ):
+        optic.debug("version_suggestions: listing_id={}", listing_id)
         return await _version_suggestions(
             listing_id=listing_id,
             listing_model=listing_model,
