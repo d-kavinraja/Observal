@@ -17,6 +17,7 @@ import json
 from dataclasses import dataclass
 
 import structlog
+from loguru import logger as optic
 
 from services.clickhouse import insert_session_events, query_existing_for_dedup, query_session_event_count
 from services.secrets_redactor import redact_secrets
@@ -30,6 +31,7 @@ def _extract_usage_tokens(parsed: dict) -> dict:
     Cursor injects a synthetic usage line from the hook payload on stop events.
     All other IDEs (Kiro, etc.) have no per-line token data and default to 0.
     """
+    optic.debug("_extract_usage_tokens: parsed={}", parsed)
     msg = parsed.get("message", {})
     usage = msg.get("usage") or {}
     return {
@@ -94,6 +96,7 @@ async def ingest_session_lines(
         An :class:`IngestResult` with ``ingested``, ``skipped``, and
         ``errors`` counts.
     """
+    optic.debug("ingest_session_lines: session_id={}, project_id={}", session_id, project_id)
     ingested = 0
     skipped = 0
     errors = 0
@@ -103,6 +106,7 @@ async def ingest_session_lines(
         extra = get_extra_rows(ide, session_id, project_id, user_id, agent_id, agent_version, total_credits)
         if extra:
             await insert_session_events(extra)
+        optic.debug("ingest skip: no lines provided for session={}", session_id)
         return IngestResult(ingested=0, skipped=0, errors=0)
 
     # Pre-check: fetch (existing_offsets, existing_hashes) for this batch range.
@@ -186,6 +190,11 @@ async def ingest_session_lines(
 
     if rows:
         await insert_session_events(rows)
+        optic.debug(
+            "inserted {} rows into session_events for session={}",
+            len(rows),
+            session_id,
+        )
 
     # Store any IDE-specific extra rows (e.g. Kiro credits summary row).
     extra = get_extra_rows(ide, session_id, project_id, user_id, agent_id, agent_version, total_credits)
@@ -206,6 +215,7 @@ async def check_session_integrity(
     Queries ``SELECT count(), max(line_offset)`` for the session and
     compares against the expected values.
     """
+    optic.debug("check_session_integrity: session_id={}, project_id={}", session_id, project_id)
     stored_count, stored_max_offset = await query_session_event_count(session_id, project_id)
     ok = stored_count == expected_line_count and stored_max_offset == expected_offset
     return IntegrityResult(
