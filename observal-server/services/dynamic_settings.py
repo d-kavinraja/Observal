@@ -22,6 +22,7 @@ import hashlib
 from typing import Any
 
 import structlog
+from loguru import logger as optic
 
 logger = structlog.get_logger(__name__)
 
@@ -327,6 +328,7 @@ async def get(key: str, default: str | None = None) -> str:
     Returns:
         The setting value as a string.
     """
+    optic.debug("dynamic_settings get: key={}", key)
     # 1. Try Redis cache
     try:
         from services.redis import get_redis
@@ -580,6 +582,7 @@ def get_sync_bool(key: str, default: bool | None = None) -> bool:
 
 async def load_sync_cache() -> None:
     """Load all settings into the sync cache. Call once at startup."""
+    optic.debug("loading dynamic settings sync cache")
     global _sync_cache, _sync_cache_loaded
     try:
         db_values = await _read_all_from_db()
