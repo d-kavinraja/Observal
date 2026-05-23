@@ -22,6 +22,7 @@ from datetime import datetime
 from pathlib import Path
 
 import typer
+from loguru import logger as optic
 from rich import print as rprint
 
 from observal_cli import config
@@ -50,6 +51,7 @@ doctor_app = typer.Typer(help="Diagnose and patch IDE settings for Observal tele
 
 
 def _load_json(path: Path) -> dict | None:
+    optic.debug("_load_json: path={}", path)
     try:
         return _load_jsonc(path)
     except Exception:
@@ -62,6 +64,7 @@ def _load_json(path: Path) -> dict | None:
 @doctor_app.callback(invoke_without_command=True)
 def doctor(ctx: typer.Context):
     """Diagnose IDE settings and offer to configure telemetry + AI skill."""
+    optic.debug("cli: doctor")
     if ctx.invoked_subcommand is not None:
         return
 
@@ -136,6 +139,7 @@ def doctor(ctx: typer.Context):
 
 def _check_observal_skill_missing() -> list[str]:
     """Return list of IDE display names where the observal skill is not installed."""
+    optic.debug("_check_observal_skill_missing called")
     from observal_cli.ide_registry import IDE_REGISTRY
 
     skill_source = Path(__file__).parent / "skills" / "observal" / "SKILL.md"
@@ -164,6 +168,7 @@ def _check_observal_skill_missing() -> list[str]:
 
 
 def _check_observal_config(issues: list, warnings: list):
+    optic.debug("_check_observal_config: issues={}, warnings={}", issues, warnings)
     config_path = Path.home() / ".observal" / "config.json"
     if not config_path.exists():
         issues.append("~/.observal/config.json not found. Run `observal auth login` first.")
@@ -193,6 +198,7 @@ def _check_observal_config(issues: list, warnings: list):
 
 
 def _check_claude_code(issues: list, warnings: list):
+    optic.debug("_check_claude_code: issues={}, warnings={}", issues, warnings)
     settings_path = Path.home() / ".claude" / "settings.json"
     if not settings_path.exists():
         rprint("  [dim]No ~/.claude/settings.json found[/dim]")
@@ -243,6 +249,7 @@ def _check_claude_code(issues: list, warnings: list):
 
 
 def _check_kiro(issues: list, warnings: list):
+    optic.debug("_check_kiro: issues={}, warnings={}", issues, warnings)
     agents_dir = Path.home() / ".kiro" / "agents"
     if not agents_dir.is_dir():
         rprint("  [dim]No ~/.kiro/agents/ found[/dim]")
@@ -302,10 +309,11 @@ def doctor_cleanup(
       observal doctor cleanup --ide kiro               # Kiro only
       observal doctor cleanup --ide claude-code --dry-run  # Preview without changes
     """
+    optic.debug("doctor_cleanup: ide={}, dry_run={}", ide, dry_run)
     targets = [ide] if ide else ["claude-code", "kiro"]
     any_changes = False
 
-    rprint("[bold]Observal Doctor — Cleanup[/bold]\n")
+    rprint("[bold]Observal Doctor - Cleanup[/bold]\n")
 
     for target in targets:
         if target in ("claude-code", "claude_code"):
@@ -322,14 +330,15 @@ def doctor_cleanup(
     if any_changes and not dry_run:
         rprint("\n[green]✓ Cleanup complete.[/green] Restart your IDE sessions to take effect.")
     elif not any_changes:
-        rprint("\n[dim]Nothing to clean up — no Observal artifacts found.[/dim]")
+        rprint("\n[dim]Nothing to clean up - no Observal artifacts found.[/dim]")
 
 
 def _cleanup_claude_code(dry_run: bool) -> bool:
+    optic.debug("_cleanup_claude_code: dry_run={}", dry_run)
     rprint("[cyan]Claude Code[/cyan]")
     settings_path = Path.home() / ".claude" / "settings.json"
     if not settings_path.exists():
-        rprint("  [dim]No settings.json found — skipping[/dim]")
+        rprint("  [dim]No settings.json found - skipping[/dim]")
         return False
 
     try:
@@ -388,10 +397,11 @@ def _cleanup_claude_code(dry_run: bool) -> bool:
 
 
 def _cleanup_kiro(dry_run: bool) -> bool:
+    optic.debug("_cleanup_kiro: dry_run={}", dry_run)
     rprint("[cyan]Kiro[/cyan]")
     agents_dir = Path.home() / ".kiro" / "agents"
     if not agents_dir.is_dir():
-        rprint("  [dim]No ~/.kiro/agents/ found — skipping[/dim]")
+        rprint("  [dim]No ~/.kiro/agents/ found - skipping[/dim]")
         return False
 
     changed = False
@@ -436,6 +446,7 @@ def _cleanup_kiro(dry_run: bool) -> bool:
 
 def _wrap_with_shim(entry: dict, mcp_id: str) -> dict:
     """Wrap an MCP server entry with observal-shim for telemetry."""
+    optic.debug("_wrap_with_shim: entry={}, mcp_id={}", entry, mcp_id)
     if entry.get("url"):
         return entry
     shimmed = dict(entry)
@@ -446,6 +457,7 @@ def _wrap_with_shim(entry: dict, mcp_id: str) -> dict:
 
 def _backup_config(config_path: Path) -> Path:
     """Create a timestamped backup of the config file."""
+    optic.debug("_backup_config: config_path={}", config_path)
     ts = datetime.now().strftime("%Y%m%d_%H%M%S")
     backup = config_path.with_suffix(f".pre-observal.{ts}.bak")
     shutil.copy2(config_path, backup)
@@ -454,6 +466,7 @@ def _backup_config(config_path: Path) -> Path:
 
 def _parse_mcp_servers(config_data: dict, ide: str) -> dict[str, dict]:
     """Extract MCP servers dict from IDE config using registry-defined key."""
+    optic.debug("_parse_mcp_servers: config_data={}, ide={}", config_data, ide)
     key = get_mcp_servers_key(ide)
     if key == "mcp.servers":
         return config_data.get("mcp", {}).get("servers", {})
@@ -471,6 +484,7 @@ def _shim_config_file(config_path: Path, ide: str, dry_run: bool) -> int:
 
     Returns count of newly shimmed entries.
     """
+    optic.debug("_shim_config_file: config_path={}, ide={}", config_path, ide)
     if not config_path.exists():
         return 0
     try:
@@ -522,6 +536,7 @@ def doctor_patch(
       observal doctor patch --shim --ide cursor        # Cursor shims only
       observal doctor patch --all --all-ides --dry-run # Preview changes
     """
+    optic.debug("doctor_patch: hook={}, shim={}", hook, shim)
     do_hooks = hook or all_
     do_shims = shim or all_
 
@@ -547,7 +562,7 @@ def doctor_patch(
 
     any_changes = False
     verb = "Would" if dry_run else "Done"
-    rprint("[bold]Observal Doctor — Patch[/bold]\n")
+    rprint("[bold]Observal Doctor - Patch[/bold]\n")
 
     for target in targets:
         # ── Hooks ──
@@ -566,7 +581,7 @@ def doctor_patch(
         if do_shims:
             shim_path = _SHIM_TARGETS.get(target)
             if shim_path and shim_path.exists():
-                rprint(f"[cyan]{target} — shims[/cyan]")
+                rprint(f"[cyan]{target} - shims[/cyan]")
                 count = _shim_config_file(shim_path, target, dry_run)
                 if count:
                     any_changes = True
@@ -575,7 +590,7 @@ def doctor_patch(
                     rprint("  [dim]All MCP servers already shimmed[/dim]")
 
     if dry_run:
-        rprint("\n[yellow]Dry run — no changes made.[/yellow]")
+        rprint("\n[yellow]Dry run - no changes made.[/yellow]")
     elif any_changes:
         rprint("\n[green]✓ Patch complete.[/green] Restart your IDE sessions to pick up changes.")
     else:
@@ -584,9 +599,10 @@ def doctor_patch(
 
 def _patch_claude_code(dry_run: bool) -> bool:
     """Install session push hooks into ~/.claude/settings.json."""
+    optic.debug("_patch_claude_code: dry_run={}", dry_run)
     from observal_cli import settings_reconciler
 
-    rprint("[cyan]Claude Code — session push hooks[/cyan]")
+    rprint("[cyan]Claude Code - session push hooks[/cyan]")
 
     settings_path = Path.home() / ".claude" / "settings.json"
     if not settings_path.exists():
@@ -594,7 +610,7 @@ def _patch_claude_code(dry_run: bool) -> bool:
 
     desired_hooks = get_desired_hooks()
 
-    # No env vars needed for session push — config lives in ~/.observal/config.json
+    # No env vars needed for session push - config lives in ~/.observal/config.json
     changes = settings_reconciler.reconcile(desired_hooks, {}, dry_run=dry_run)
 
     if changes:
@@ -608,13 +624,14 @@ def _patch_claude_code(dry_run: bool) -> bool:
 
 def _patch_kiro(dry_run: bool) -> bool:
     """Install session push hooks into Kiro agent configs."""
+    optic.debug("_patch_kiro: dry_run={}", dry_run)
     from observal_cli.ide_specs.kiro_hooks_spec import build_kiro_hooks
 
-    rprint("[cyan]Kiro — session push hooks[/cyan]")
+    rprint("[cyan]Kiro - session push hooks[/cyan]")
 
     agents_dir = Path.home() / ".kiro" / "agents"
     if not agents_dir.is_dir():
-        rprint("  [dim]No ~/.kiro/agents/ directory — skipping[/dim]")
+        rprint("  [dim]No ~/.kiro/agents/ directory - skipping[/dim]")
         return False
 
     agent_files = list(agents_dir.glob("*.json"))
@@ -660,13 +677,14 @@ def _patch_kiro(dry_run: bool) -> bool:
 
 def _patch_cursor(dry_run: bool) -> bool:
     """Install session push hooks into ~/.cursor/hooks.json."""
+    optic.debug("_patch_cursor: dry_run={}", dry_run)
     import sys
 
-    rprint("[cyan]Cursor — session push hooks[/cyan]")
+    rprint("[cyan]Cursor - session push hooks[/cyan]")
 
     hooks_path = Path.home() / ".cursor" / "hooks.json"
     if not hooks_path.parent.is_dir():
-        rprint("  [dim]No ~/.cursor/ directory — skipping[/dim]")
+        rprint("  [dim]No ~/.cursor/ directory - skipping[/dim]")
         return False
 
     # Use the current interpreter (from the observal CLI's venv) so that
