@@ -13,6 +13,7 @@ import re
 from dataclasses import dataclass
 
 import httpx
+from loguru import logger
 
 
 @dataclass
@@ -28,6 +29,7 @@ _BITBUCKET_RE = re.compile(r"(?:https?://)?bitbucket\.org/([^/]+)/([^/]+?)(?:\.g
 
 def _parse_forge(source_url: str) -> tuple[str, str, str] | None:
     """Parse source URL into (forge_type, owner, repo) or None."""
+    logger.debug("_parse_forge: source_url={}", source_url)
     m = _GITHUB_RE.match(source_url)
     if m:
         return ("github", m.group(1), m.group(2))
@@ -42,6 +44,7 @@ def _parse_forge(source_url: str) -> tuple[str, str, str] | None:
 
 def _build_raw_url(forge: str, owner: str, repo: str, ref: str, path: str) -> str:
     """Build the raw file URL for the given forge."""
+    logger.debug("_build_raw_url: forge={}, owner={}, repo={}", forge, owner, repo)
     if forge == "github":
         return f"https://raw.githubusercontent.com/{owner}/{repo}/{ref}/{path}"
     if forge == "gitlab":
@@ -64,6 +67,9 @@ async def validate_sandbox_source(
     3. HTTP HEAD request (10s timeout)
     4. Interpret response
     """
+    logger.debug(
+        "validate_sandbox_source: source_url={}, sandbox_path={}, source_ref={}", source_url, sandbox_path, source_ref
+    )
     parsed = _parse_forge(source_url)
     if not parsed:
         return ValidatorResult(
