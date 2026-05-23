@@ -6,6 +6,7 @@
 import json
 
 from fastapi import Depends, HTTPException
+from loguru import logger as optic
 from sqlalchemy import func, select, text
 from sqlalchemy.ext.asyncio import AsyncSession
 
@@ -29,7 +30,8 @@ async def diagnostics(
     db: AsyncSession = Depends(get_db),
     current_user: User = Depends(require_role(UserRole.admin)),
 ):
-    """Authenticated system health — full status for ops dashboards."""
+    """Authenticated system health - full status for ops dashboards."""
+    optic.debug("diagnostics called")
     from services.crypto import get_key_manager
 
     diag: dict[str, object] = {
@@ -95,6 +97,7 @@ async def system_warnings(
     current_user: User = Depends(require_role(UserRole.admin)),
 ):
     """Return actionable security warnings for the admin settings page."""
+    optic.debug("system_warnings called")
     warnings: list[dict] = []
 
     weak_keys = {"change-me-to-a-random-string", "changeme", "secret", "dev", ""}
@@ -125,6 +128,7 @@ async def list_settings(
     db: AsyncSession = Depends(get_db),
     current_user: User = Depends(require_role(UserRole.admin)),
 ):
+    optic.debug("admin settings list")
     result = await db.execute(select(EnterpriseConfig).order_by(EnterpriseConfig.key))
     configs = [EnterpriseConfigResponse.model_validate(c) for c in result.scalars().all()]
     await audit(current_user, "admin.settings.list", "settings")
@@ -137,6 +141,7 @@ async def get_setting(
     db: AsyncSession = Depends(get_db),
     current_user: User = Depends(require_role(UserRole.admin)),
 ):
+    optic.debug("admin setting get")
     result = await db.execute(select(EnterpriseConfig).where(EnterpriseConfig.key == key))
     cfg = result.scalar_one_or_none()
     if not cfg:
@@ -152,6 +157,7 @@ async def upsert_setting(
     db: AsyncSession = Depends(get_db),
     current_user: User = Depends(require_role(UserRole.admin)),
 ):
+    optic.debug("upsert_setting: key={}", key)
     if key in ("branding.logo", "branding.wordmark"):
         _validate_branding_logo(req.value)
     elif key == "branding.app_name":
@@ -188,6 +194,7 @@ async def delete_setting(
     db: AsyncSession = Depends(get_db),
     current_user: User = Depends(require_role(UserRole.admin)),
 ):
+    optic.debug("delete_setting: key={}", key)
     result = await db.execute(select(EnterpriseConfig).where(EnterpriseConfig.key == key))
     cfg = result.scalar_one_or_none()
     if not cfg:
@@ -204,6 +211,7 @@ async def apply_resources(
     db: AsyncSession = Depends(get_db),
 ):
     """Re-apply resource tuning settings to ClickHouse without restart."""
+    optic.debug("apply_resources: user_id={}", current_user.id)
     from services.clickhouse import RESOURCE_SETTINGS_MAP, apply_resource_settings
 
     result = await db.execute(select(EnterpriseConfig).where(EnterpriseConfig.key.like("resource.%")))
