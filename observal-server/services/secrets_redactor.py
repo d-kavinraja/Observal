@@ -18,6 +18,8 @@ BEFORE storage in ClickHouse.  Designed to avoid over-stripping:
 import re
 from typing import Any
 
+from loguru import logger
+
 # ---------------------------------------------------------------------------
 # Known API key prefixes — near-zero false-positive rate.
 # These match actual key VALUES, not variable names.
@@ -155,6 +157,7 @@ _redaction_count: int = 0
 
 
 def get_and_reset_redaction_count() -> int:
+    logger.debug("get_and_reset_redaction_count called")
     global _redaction_count
     count = _redaction_count
     _redaction_count = 0
@@ -167,6 +170,7 @@ def redact_secrets(text: str) -> str:
     Safe to call on any string — returns the original if nothing matches.
     Idempotent: calling twice produces the same result.
     """
+    logger.debug("redact_secrets: text={}", text)
     if not text or len(text) < 8:
         return text
 
@@ -189,6 +193,7 @@ def redact_secrets(text: str) -> str:
     # 4. Key=value assignments with secret-sounding key names
     #    Replace only the VALUE, keep the key name
     def _replace_kv(m: re.Match) -> str:
+        logger.debug("_replace_kv: m={}", m)
         # Groups: 1=double-quoted, 2=single-quoted, 3=unquoted
         val = m.group(1) or m.group(2) or m.group(3)
         return m.group(0).replace(val, REDACTED) if val else m.group(0)
@@ -206,6 +211,7 @@ def redact_secrets(text: str) -> str:
 
 def _redact_value(value: Any) -> Any:
     """Recursively redact all string values in a structured value."""
+    logger.debug("_redact_value: value={}", value)
     if isinstance(value, str):
         return redact_secrets(value)
     if isinstance(value, dict):
@@ -219,6 +225,7 @@ def _redact_value(value: Any) -> Any:
 
 def _redact_matching_fields(value: Any, fields: set[str]) -> Any:
     """Recurse through containers looking for dict keys selected by fields."""
+    logger.debug("_redact_matching_fields: value={}, fields={}", value, fields)
     if isinstance(value, dict):
         return redact_dict(value, fields)
     if isinstance(value, list):
@@ -236,6 +243,7 @@ def redact_dict(data: dict, fields: set[str] | None = None) -> dict:
     including nested dicts/lists.
     Does NOT mutate the original — returns a new dict.
     """
+    logger.debug("redact_dict: data={}, fields={}", data, fields)
     out = {}
     for key, value in data.items():
         if fields is None or key in fields:
