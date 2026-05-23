@@ -18,6 +18,7 @@ import time
 
 from fastapi import APIRouter, Depends, HTTPException, Request
 from fastapi.responses import JSONResponse
+from loguru import logger as optic
 from redis.exceptions import RedisError
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -78,6 +79,7 @@ def _resolve_frontend_url(request: Request) -> str:
 @limiter.limit("5/minute")
 async def device_authorize(request: Request, req: DeviceAuthRequest = None):
     """Create a device authorization request. Returns device_code + user_code."""
+    optic.debug("device_authorize: initiating device auth flow")
     device_code = secrets.token_urlsafe(48)
     user_code = _generate_user_code()
     normalized_code = _normalize_user_code(user_code)
@@ -102,6 +104,7 @@ async def device_authorize(request: Request, req: DeviceAuthRequest = None):
 
     frontend_url = _resolve_frontend_url(request)
 
+    optic.info("device_authorize: code issued, user_code={}", user_code)
     return DeviceAuthResponse(
         device_code=device_code,
         user_code=user_code,
@@ -116,6 +119,7 @@ async def device_authorize(request: Request, req: DeviceAuthRequest = None):
 @limiter.limit("10/minute")
 async def device_token(request: Request, req: DeviceTokenRequest, db: AsyncSession = Depends(get_db)):
     """CLI polls this to check if the user approved the device code."""
+    optic.debug("device_token: polling for device_code approval")
     if req.grant_type != _DEVICE_GRANT_TYPE:
         return JSONResponse(status_code=400, content={"error": "invalid_grant_type"})
 
@@ -168,6 +172,7 @@ async def device_token(request: Request, req: DeviceTokenRequest, db: AsyncSessi
 
         access_token, refresh_token, expires_in = await _issue_tokens(user)
 
+        optic.info("device_token: tokens issued for user={}", user.email)
         return JSONResponse(
             status_code=200,
             content={
@@ -193,6 +198,7 @@ async def device_confirm(
     current_user: User = Depends(get_current_user),
 ):
     """Browser calls this after the user logs in and enters the code."""
+    optic.debug("device_confirm: user={} confirming code", current_user.email)
     normalized_code = _normalize_user_code(req.user_code)
 
     try:
@@ -245,4 +251,5 @@ async def device_confirm(
         detail=f"Device code approved for user {current_user.email}",
     )
 
+    optic.info("device_confirm: device authorized for user={}", current_user.email)
     return {"message": "Device authorized"}
