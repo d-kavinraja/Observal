@@ -1,13 +1,13 @@
 # SPDX-FileCopyrightText: 2026 Hari Srinivasan <harisrini21@gmail.com>
 # SPDX-License-Identifier: AGPL-3.0-only
 
-# Fetches combined GHCR pull counts for observal-api and observal-web using the
-# GitHub GraphQL API (requires authentication). Writes a shields.io endpoint JSON
-# to a Gist so the README badge stays live.
+# Fetches combined GHCR pull counts for observal-api and observal-web by
+# scraping the public package pages (no auth needed — the count is in the HTML).
+# Writes a shields.io endpoint JSON to a Gist so the README badge stays live.
 #
 # One-time setup required:
 #   1. Create a public Gist with a file named ghcr-pulls.json
-#   2. Generate a PAT with scope: gist, read:packages
+#   2. Generate a PAT with scope: gist only
 #   3. Add two repo secrets:
 #        BADGE_GIST_ID    — the Gist ID (alphanumeric hash in the URL)
 #        BADGE_GIST_TOKEN — the PAT created above
@@ -31,53 +31,47 @@ jobs:
     steps:
       - name: Fetch pull counts from GHCR
         id: counts
-        env:
-          GITHUB_TOKEN: ${{ secrets.BADGE_GIST_TOKEN }}
         run: |
           python3 - <<'PY'
-          import os, json, urllib.request
-
-          def get_package_pulls(owner, package):
-              """Fetch pull count for a GHCR package using the REST API."""
-              url = f"https://api.github.com/users/{owner}/packages/container/{package}/versions"
+          import os, re, urllib.request, urllib.error
+          
+          def scrape_count(username, package):
+              """Scrape download count from GitHub package page."""
+              # Correct URL format: https://github.com/{username}/packages/container/{package}
+              url = f"https://github.com/{username}/packages/container/{package}"
               req = urllib.request.Request(
                   url,
-                  headers={
-                      "Authorization": f"token {os.environ.get('GITHUB_TOKEN', '')}",
-                      "Accept": "application/vnd.github+json",
-                      "X-GitHub-Api-Version": "2022-11-28",
-                      "User-Agent": "GitHub-Actions"
-                  }
+                  headers={"User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36"}
               )
               try:
                   with urllib.request.urlopen(req) as resp:
-                      data = json.loads(resp.read().decode())
-                      # Sum downloads across all versions
-                      total_downloads = sum(
-                          version.get("download_count", 0)
-                          for version in data
-                          if isinstance(data, list)
-                      )
-                      return total_downloads
+                      html = resp.read().decode()
+                  # Look for the download count in the HTML
+                  # Pattern: looks for text like "Total downloads" followed by the count
+                  match = re.search(r'Total\s+downloads?[^0-9]*([0-9,]+)', html, re.IGNORECASE)
+                  if match:
+                      count_str = match.group(1).replace(',', '')
+                      return int(count_str)
+                  return 0
               except urllib.error.HTTPError as e:
                   print(f"Error fetching {package}: HTTP {e.code}")
                   return 0
-
-          api_count = get_package_pulls("blazeup-ai", "observal-api")
-          web_count = get_package_pulls("blazeup-ai", "observal-web")
+          
+          api_count = scrape_count("blazeup-ai", "observal-api")
+          web_count = scrape_count("blazeup-ai", "observal-web")
           total = api_count + web_count
-
+          
           print(f"observal-api: {api_count}")
           print(f"observal-web: {web_count}")
           print(f"Total: {total}")
-
+          
           if total >= 1_000_000:
               label = f"{total / 1_000_000:.1f}M"
           elif total >= 1_000:
               label = f"{total / 1_000:.1f}k"
           else:
               label = str(total)
-
+          
           with open(os.environ["GITHUB_OUTPUT"], "a") as f:
               f.write(f"label={label}\n")
               f.write(f"total={total}\n")
