@@ -15,10 +15,11 @@
 name: Update GHCR pulls badge
 
 on:
-  schedule:
-    - cron: "0 3 * * *" # daily at 03:00 UTC
-  release:
-    types: [published]
+  # Disabled for forks — requires BADGE_GIST_ID and BADGE_GIST_TOKEN secrets
+  # schedule:
+  #   - cron: "0 3 * * *" # daily at 03:00 UTC
+  # release:
+  #   types: [published]
   workflow_dispatch:
 
 permissions: {}
