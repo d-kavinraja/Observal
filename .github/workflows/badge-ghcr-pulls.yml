@@ -65,6 +65,7 @@ jobs:
           PY
 
       - name: Write shields.io JSON to Gist
+        if: secrets.BADGE_GIST_TOKEN && secrets.BADGE_GIST_ID
         env:
           GIST_TOKEN: ${{ secrets.BADGE_GIST_TOKEN }}
           GIST_ID: ${{ secrets.BADGE_GIST_ID }}
