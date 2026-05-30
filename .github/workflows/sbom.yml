@@ -121,7 +121,7 @@ jobs:
           uv tool install "scancode-toolkit>=32.0,<33.0"
           scancode \
             --license --package --info \
-            --license-policy license-policy.yml \
+            --license-policy .reuse/license-policy.yml \
             --json-pp scan-results.json \
             --processes $(nproc) \
             --timeout 120 \
