@@ -162,7 +162,7 @@ async def run_single_report(report_id: str) -> None:
     This replaces the old generator.generate_report() — orchestration stays
     here in the main repo, computation is delegated to the observal-insights package.
     """
-    from ee.observal_insights import generate_report_content
+    from .generator import generate_report_content
 
     # Reap any stale reports before starting (handles crash recovery)
     await _reap_stale_reports()
