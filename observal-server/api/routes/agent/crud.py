@@ -15,7 +15,6 @@ from api.deps import (
     ROLE_HIERARCHY,
     get_db,
     get_effective_agent_permission,
-    optional_current_user,
     require_role,
 )
 from api.sanitize import escape_like
@@ -53,7 +52,7 @@ async def create_agent(
     db: AsyncSession = Depends(get_db),
     current_user: User = Depends(require_role(UserRole.user)),
 ):
-    optic.debug("agent create")
+    optic.debug("creating agent")
     if not req.description:
         raise HTTPException(status_code=422, detail="Description must not be empty")
 
@@ -222,9 +221,9 @@ async def list_agents(
     limit: int = Query(50, ge=1, le=200, description="Page size (1-200)"),
     offset: int = Query(0, ge=0, description="Items to skip"),
     db: AsyncSession = Depends(get_db),
-    current_user: User | None = Depends(optional_current_user),
+    current_user: User = Depends(require_role(UserRole.user)),
 ):
-    optic.debug("agent list")
+    optic.debug("listing agents")
     from models.feedback import Feedback
 
     base_filter = AgentVersion.status == AgentStatus.approved
@@ -236,7 +235,7 @@ async def list_agents(
     # Org-scoping: when the caller belongs to an org, show agents owned by that org
     # or agents with no org set (legacy/bulk-created agents)
     org_filter = None
-    if current_user is not None and current_user.org_id is not None:
+    if current_user.org_id is not None:
         org_filter = (Agent.owner_org_id == current_user.org_id) | (Agent.owner_org_id.is_(None))
 
     # Total count for pagination header
@@ -414,18 +413,18 @@ async def archived_agents(
 async def get_agent(
     agent_id: str,
     db: AsyncSession = Depends(get_db),
-    current_user: User | None = Depends(optional_current_user),
+    current_user: User = Depends(require_role(UserRole.user)),
 ):
-    optic.debug("agent get")
+    optic.debug("fetching agent details")
     agent = await _load_agent(
         db,
         agent_id,
-        prefer_user_id=current_user.id if current_user else None,
-        org_id=current_user.org_id if current_user else None,
+        prefer_user_id=current_user.id,
+        org_id=current_user.org_id,
     )
     if not agent:
         raise HTTPException(status_code=404, detail="Agent not found")
-    if current_user is not None and current_user.org_id is not None and agent.owner_org_id != current_user.org_id:
+    if current_user.org_id is not None and agent.owner_org_id != current_user.org_id:
         raise HTTPException(status_code=404, detail="Agent not found")
     perm = get_effective_agent_permission(agent, current_user)
     if perm == "none":
@@ -445,18 +444,18 @@ async def get_agent(
 async def version_suggestions(
     agent_id: str,
     db: AsyncSession = Depends(get_db),
-    current_user: User | None = Depends(optional_current_user),
+    current_user: User = Depends(require_role(UserRole.user)),
 ):
-    optic.debug("version_suggestions: agent_id={}", agent_id)
+    optic.trace("agent_id={}", agent_id)
     agent = await _load_agent(
         db,
         agent_id,
-        prefer_user_id=current_user.id if current_user else None,
-        org_id=current_user.org_id if current_user else None,
+        prefer_user_id=current_user.id,
+        org_id=current_user.org_id,
     )
     if not agent:
         raise HTTPException(status_code=404, detail="Agent not found")
-    if current_user is not None and current_user.org_id is not None and agent.owner_org_id != current_user.org_id:
+    if current_user.org_id is not None and agent.owner_org_id != current_user.org_id:
         raise HTTPException(status_code=404, detail="Agent not found")
     if get_effective_agent_permission(agent, current_user) == "none":
         raise HTTPException(status_code=403, detail="Insufficient permissions to view this agent")
@@ -472,7 +471,7 @@ async def update_agent(
     db: AsyncSession = Depends(get_db),
     current_user: User = Depends(require_role(UserRole.user)),
 ):
-    optic.debug("update_agent: agent_id={}", agent_id)
+    optic.trace("agent_id={}", agent_id)
     agent = await _load_agent(db, agent_id, prefer_user_id=current_user.id, org_id=current_user.org_id)
     if not agent:
         raise HTTPException(status_code=404, detail="Agent not found")
@@ -635,7 +634,7 @@ async def delete_agent(
     db: AsyncSession = Depends(get_db),
     current_user: User = Depends(require_role(UserRole.user)),
 ):
-    optic.debug("agent delete")
+    optic.debug("deleting agent")
     from models.feedback import Feedback
 
     agent = await _load_agent(
@@ -698,7 +697,7 @@ async def archive_agent(
     db: AsyncSession = Depends(get_db),
     current_user: User = Depends(require_role(UserRole.user)),
 ):
-    optic.debug("archive_agent: agent_id={}", agent_id)
+    optic.trace("agent_id={}", agent_id)
     agent = await _load_agent(db, agent_id, prefer_user_id=current_user.id, org_id=current_user.org_id)
     if not agent:
         raise HTTPException(status_code=404, detail="Agent not found")
@@ -734,7 +733,7 @@ async def unarchive_agent(
     db: AsyncSession = Depends(get_db),
     current_user: User = Depends(require_role(UserRole.user)),
 ):
-    optic.debug("unarchive_agent: agent_id={}", agent_id)
+    optic.trace("agent_id={}", agent_id)
     agent = await _load_agent(
         db, agent_id, prefer_user_id=current_user.id, org_id=current_user.org_id, include_all_statuses=True
     )
