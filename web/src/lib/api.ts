@@ -566,10 +566,19 @@ export const feedback = {
 		listing_id: string;
 		rating: number;
 		comment?: string;
+		anonymous?: boolean;
 	}) => post<FeedbackItem>("/feedback", body),
 	get: (type: string, id: string) =>
 		get<FeedbackItem[]>(`/feedback/${type}/${id}`),
 	summary: (id: string) => get<FeedbackSummary>(`/feedback/summary/${id}`),
+	mine: (type: string, id: string) =>
+		get<FeedbackItem>(`/feedback/mine/${type}/${id}`),
+	update: (feedbackId: string, body: {
+		rating?: number;
+		comment?: string;
+		anonymous?: boolean;
+	}) => put<FeedbackItem>(`/feedback/${feedbackId}`, body),
+	remove: (feedbackId: string) => del<void>(`/feedback/${feedbackId}`),
 };
 
 // ── Admin ───────────────────────────────────────────────────────────
@@ -764,11 +773,12 @@ export interface IdeEntry {
 
 interface IdesResponse {
 	ides: IdeEntry[];
+	default_ide?: string | null;
 }
 
 export const config = {
 	public: () => get<PublicConfig>("/config/public"),
-	ides: () => get<IdesResponse>("/config/ides").then((r) => r.ides),
+	ides: () => get<IdesResponse>("/config/ides"),
 };
 
 // ── Models ─────────────────────────────────────────────────────────
