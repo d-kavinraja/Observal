@@ -412,7 +412,7 @@ class TestResolveAgent:
         agent.components = [comp]
 
         mock_result = MagicMock()
-        mock_result.scalar_one_or_none.return_value = None
+        mock_result.scalars.return_value.all.return_value = []
         db = AsyncMock()
         db.execute.return_value = mock_result
 
@@ -439,11 +439,12 @@ class TestResolveAgent:
         agent.components = [comp]
 
         listing = MagicMock()
+        listing.id = comp.component_id
         listing.status = ListingStatus.pending
         listing.name = "pending-mcp"
 
         mock_result = MagicMock()
-        mock_result.scalar_one_or_none.return_value = listing
+        mock_result.scalars.return_value.all.return_value = [listing]
         db = AsyncMock()
         db.execute.return_value = mock_result
 
@@ -472,6 +473,7 @@ class TestResolveAgent:
         agent.components = [comp]
 
         listing = MagicMock()
+        listing.id = comp.component_id
         listing.status = ListingStatus.approved
         listing.name = "good-mcp"
         listing.version = "2.0.0"
@@ -484,7 +486,7 @@ class TestResolveAgent:
         listing.setup_instructions = None
 
         mock_result = MagicMock()
-        mock_result.scalar_one_or_none.return_value = listing
+        mock_result.scalars.return_value.all.return_value = [listing]
         db = AsyncMock()
         db.execute.return_value = mock_result
 
@@ -517,6 +519,7 @@ class TestResolveAgent:
         agent.components = [comp]
 
         listing = MagicMock()
+        listing.id = comp.component_id
         listing.status = ListingStatus.pending
         listing.name = "pending-skill"
         listing.version = "1.0.0"
@@ -529,7 +532,7 @@ class TestResolveAgent:
         listing.skill_md_content = None
 
         mock_result = MagicMock()
-        mock_result.scalar_one_or_none.return_value = listing
+        mock_result.scalars.return_value.all.return_value = [listing]
         db = AsyncMock()
         db.execute.return_value = mock_result
 
@@ -566,6 +569,7 @@ class TestResolveAgent:
         agent.components = [good_comp, bad_comp]
 
         good_listing = MagicMock()
+        good_listing.id = good_comp.component_id
         good_listing.status = ListingStatus.approved
         good_listing.name = "good-mcp"
         good_listing.version = "1.0"
@@ -577,14 +581,13 @@ class TestResolveAgent:
         good_listing.mcp_validated = True
         good_listing.setup_instructions = None
 
-        # Return good listing for first call, None for second
-        mock_result_good = MagicMock()
-        mock_result_good.scalar_one_or_none.return_value = good_listing
-        mock_result_bad = MagicMock()
-        mock_result_bad.scalar_one_or_none.return_value = None
+        # Both components are type "mcp" so they are fetched in one batch.
+        # Only good_listing is returned, so bad_comp is "not found".
+        mock_result = MagicMock()
+        mock_result.scalars.return_value.all.return_value = [good_listing]
 
         db = AsyncMock()
-        db.execute.side_effect = [mock_result_good, mock_result_bad]
+        db.execute.return_value = mock_result
 
         resolved = await resolve_agent(agent, db)
         assert resolved.ok is False
@@ -956,6 +959,7 @@ class TestComponentLinkResponseInAgentResponse:
         assert data["component_type"] == "skill"
         assert data["component_id"] == cid
         assert data["config_override"] == {"key": "val"}
+        assert data["status"] is None
 
     def test_component_link_response_no_override(self):
         from schemas.agent import ComponentLinkResponse
@@ -965,8 +969,10 @@ class TestComponentLinkResponseInAgentResponse:
             component_id=uuid.uuid4(),
             version_ref="1.0",
             order=0,
+            status="archived",
         )
         assert link.config_override is None
+        assert link.status == "archived"
 
 
 class TestPydanticValidation:
@@ -1053,11 +1059,11 @@ class TestPydanticValidation:
         assert compact["components"]["mcps"][0]["name"] == "a"
         assert "skills" not in compact["components"]
 
-    def test_ide_agent_config_model(self):
-        from services.agent_builder import AgentFile, IdeAgentConfig
+    def test_harness_agent_config_model(self):
+        from services.agent_builder import AgentFile, HarnessAgentConfig
 
-        config = IdeAgentConfig(
-            ide="claude-code",
+        config = HarnessAgentConfig(
+            harness="claude-code",
             files=[
                 AgentFile(path=".claude/rules/test.md", content="# Rules", format="markdown"),
                 AgentFile(path=".mcp.json", content={"mcpServers": {}}, format="json"),
@@ -1097,21 +1103,21 @@ class TestResolverAndBuilderModulesImportable:
 
     def test_builder_module_importable(self):
         from services.agent_builder import (
-            SUPPORTED_IDES,
+            SUPPORTED_HARNESSES,
             build_agent_manifest,
             build_composition_summary,
-            generate_ide_agent_files,
+            generate_harness_agent_profiles,
         )
 
         assert callable(build_agent_manifest)
         assert callable(build_composition_summary)
-        assert callable(generate_ide_agent_files)
-        assert "claude-code" in SUPPORTED_IDES
-        assert "copilot" in SUPPORTED_IDES
+        assert callable(generate_harness_agent_profiles)
+        assert "claude-code" in SUPPORTED_HARNESSES
+        assert "copilot" in SUPPORTED_HARNESSES
 
 
 class TestGenerateIdeAgentFiles:
-    """Tests for universal IDE agent file generation from AgentManifest."""
+    """Tests for universal harness agent file generation from AgentManifest."""
 
     def _make_manifest(self, **overrides):
         from services.agent_builder import (
@@ -1156,144 +1162,94 @@ class TestGenerateIdeAgentFiles:
 
     # ── Claude Code ────────────────────────────────────────────
 
-    def test_claude_code_generates_rules_file(self):
-        from services.agent_builder import generate_ide_agent_files
+    def test_claude_code_generates_agent_profile(self):
+        from services.agent_builder import generate_harness_agent_profiles
 
         manifest = self._make_manifest()
-        config = generate_ide_agent_files(manifest, "claude-code")
-        assert config.ide == "claude-code"
-        agent_file = next(f for f in config.files if f.path == ".claude/agents/test-agent.md")
-        assert agent_file.format == "markdown"
-        assert "You are a helpful coding assistant." in agent_file.content
+        config = generate_harness_agent_profiles(manifest, "claude-code")
+        assert config.harness == "claude-code"
+        agent_profile = next(f for f in config.files if f.path == ".claude/agents/test-agent.md")
+        assert agent_profile.format == "markdown"
+        assert "You are a helpful coding assistant." in agent_profile.content
 
     def test_claude_code_mcp_setup_commands(self):
-        from services.agent_builder import generate_ide_agent_files
+        from services.agent_builder import generate_harness_agent_profiles
 
         manifest = self._make_manifest()
-        config = generate_ide_agent_files(manifest, "claude-code")
+        config = generate_harness_agent_profiles(manifest, "claude-code")
         assert len(config.setup_commands) == 2
         assert config.setup_commands[0][:3] == ["claude", "mcp", "add"]
         assert "github-mcp" in config.setup_commands[0]
 
-    def test_claude_code_env_includes_telemetry(self):
-        from services.agent_builder import generate_ide_agent_files
-
-        manifest = self._make_manifest()
-        config = generate_ide_agent_files(manifest, "claude-code")
-        assert "CLAUDE_CODE_ENABLE_TELEMETRY" in config.env
-        assert config.env["OTEL_EXPORTER_OTLP_PROTOCOL"] == "http/json"
-
     def test_claude_code_underscore_alias(self):
-        from services.agent_builder import generate_ide_agent_files
+        from services.agent_builder import generate_harness_agent_profiles
 
         manifest = self._make_manifest()
-        config = generate_ide_agent_files(manifest, "claude_code")
-        assert config.ide == "claude-code"
+        config = generate_harness_agent_profiles(manifest, "claude_code")
+        assert config.harness == "claude-code"
 
     # ── Cursor ─────────────────────────────────────────────────
 
-    def test_cursor_generates_rules_and_mcp_json(self):
-        from services.agent_builder import generate_ide_agent_files
+    def test_cursor_generates_subagent_and_mcp_json(self):
+        from services.agent_builder import generate_harness_agent_profiles
 
         manifest = self._make_manifest()
-        config = generate_ide_agent_files(manifest, "cursor")
-        assert config.ide == "cursor"
-        rules = next(f for f in config.files if f.path == ".cursor/rules/test-agent.md")
+        config = generate_harness_agent_profiles(manifest, "cursor")
+        assert config.harness == "cursor"
+        agent = next(f for f in config.files if f.path == ".cursor/agents/test-agent.md")
         mcp_json = next(f for f in config.files if f.format == "json")
-        assert rules.format == "markdown"
+        assert agent.format == "markdown"
         assert mcp_json.path == ".cursor/mcp.json"
         assert "mcpServers" in mcp_json.content
         assert "github-mcp" in mcp_json.content["mcpServers"]
 
     # ── VS Code ────────────────────────────────────────────────
 
-    def test_vscode_generates_rules_and_mcp_json(self):
-        from services.agent_builder import generate_ide_agent_files
-
-        manifest = self._make_manifest()
-        config = generate_ide_agent_files(manifest, "vscode")
-        assert config.ide == "vscode"
-        rules = next(f for f in config.files if f.format == "markdown")
-        mcp_json = next(f for f in config.files if f.format == "json")
-        assert rules.path == ".vscode/rules/test-agent.md"
-        assert mcp_json.path == ".vscode/mcp.json"
-
-    # ── Gemini CLI ─────────────────────────────────────────────
-
-    def test_gemini_cli_generates_gemini_md(self):
-        from services.agent_builder import generate_ide_agent_files
-
-        manifest = self._make_manifest()
-        config = generate_ide_agent_files(manifest, "gemini-cli")
-        assert config.ide == "gemini-cli"
-        gemini_md = [f for f in config.files if f.path == "GEMINI.md"]
-        assert len(gemini_md) == 1
-        assert "You are a helpful coding assistant." in gemini_md[0].content
-
-    def test_gemini_cli_env_includes_otel(self):
-        from services.agent_builder import generate_ide_agent_files
-
-        manifest = self._make_manifest()
-        config = generate_ide_agent_files(manifest, "gemini-cli")
-        assert config.env["OTEL_EXPORTER_OTLP_PROTOCOL"] == "http/json"
-
-    def test_gemini_cli_underscore_alias(self):
-        from services.agent_builder import generate_ide_agent_files
-
-        manifest = self._make_manifest()
-        config = generate_ide_agent_files(manifest, "gemini_cli")
-        assert config.ide == "gemini-cli"
-
     # ── Kiro ───────────────────────────────────────────────────
 
     def test_kiro_generates_agent_json(self):
-        from services.agent_builder import generate_ide_agent_files
+        from services.agent_builder import generate_harness_agent_profiles
 
         manifest = self._make_manifest()
-        config = generate_ide_agent_files(manifest, "kiro")
-        assert config.ide == "kiro"
-        agent_file = next(f for f in config.files if f.path == "~/.kiro/agents/test-agent.json")
-        assert agent_file.format == "json"
-        content = agent_file.content
-        assert content["name"] == "test-agent"
-        assert "You are a helpful coding assistant." in content["prompt"]
-        assert "Agent Specialization" in content["prompt"]
-        assert "mcpServers" in content
-        assert "github-mcp" in content["mcpServers"]
-        assert "*" in content["tools"]
-        assert content["model"] is None  # Kiro uses auto model selection
+        config = generate_harness_agent_profiles(manifest, "kiro")
+        assert config.harness == "kiro"
+        agent_profile = next(f for f in config.files if f.path == "~/.kiro/agents/test-agent.json")
+        assert agent_profile.format == "json"
+        assert agent_profile.content["name"] == "test-agent"
+        assert "You are a helpful coding assistant." in agent_profile.content["prompt"]
+        assert "Agent Specialization" in agent_profile.content["prompt"]
 
     # ── Codex ──────────────────────────────────────────────────
 
-    def test_codex_generates_agents_md(self):
-        from services.agent_builder import generate_ide_agent_files
+    def test_codex_generates_custom_agent(self):
+        from services.agent_builder import generate_harness_agent_profiles
 
         manifest = self._make_manifest()
-        config = generate_ide_agent_files(manifest, "codex")
-        assert config.ide == "codex"
+        config = generate_harness_agent_profiles(manifest, "codex")
+        assert config.harness == "codex"
         assert len(config.files) >= 1
-        md_file = next(f for f in config.files if f.format == "markdown")
-        assert md_file.path == "AGENTS.md"
+        agent_profile = next(f for f in config.files if f.path == ".codex/agents/test-agent.toml")
+        assert agent_profile.format == "toml"
 
     # ── GitHub Copilot ─────────────────────────────────────────
 
-    def test_copilot_generates_instructions_md(self):
-        from services.agent_builder import generate_ide_agent_files
+    def test_copilot_generates_agent_md(self):
+        from services.agent_builder import generate_harness_agent_profiles
 
         manifest = self._make_manifest()
-        config = generate_ide_agent_files(manifest, "copilot")
-        assert config.ide == "copilot"
+        config = generate_harness_agent_profiles(manifest, "copilot")
+        assert config.harness == "copilot"
         paths = [f.path for f in config.files]
-        assert ".github/copilot-instructions.md" in paths
-        md = next(f for f in config.files if f.path == ".github/copilot-instructions.md")
+        assert ".github/agents/test-agent.agent.md" in paths
+        md = next(f for f in config.files if f.path == ".github/agents/test-agent.agent.md")
         assert md.format == "markdown"
         assert "You are a helpful coding assistant." in md.content
 
     def test_copilot_generates_mcp_json(self):
-        from services.agent_builder import generate_ide_agent_files
+        from services.agent_builder import generate_harness_agent_profiles
 
         manifest = self._make_manifest()
-        config = generate_ide_agent_files(manifest, "copilot")
+        config = generate_harness_agent_profiles(manifest, "copilot")
         paths = [f.path for f in config.files]
         assert ".vscode/mcp.json" in paths
         mcp_file = next(f for f in config.files if f.path == ".vscode/mcp.json")
@@ -1303,10 +1259,10 @@ class TestGenerateIdeAgentFiles:
     # ── Rules markdown content ─────────────────────────────────
 
     def test_rules_markdown_includes_component_sections(self):
-        from services.agent_builder import generate_ide_agent_files
+        from services.agent_builder import generate_harness_agent_profiles
 
         manifest = self._make_manifest()
-        config = generate_ide_agent_files(manifest, "cursor")
+        config = generate_harness_agent_profiles(manifest, "cursor")
         rules = next(f for f in config.files if f.format == "markdown")
         content = rules.content
         assert "## MCP Servers" in content
@@ -1317,16 +1273,16 @@ class TestGenerateIdeAgentFiles:
         assert "`/review`" in content
 
     def test_rules_markdown_empty_prompt(self):
-        from services.agent_builder import generate_ide_agent_files
+        from services.agent_builder import generate_harness_agent_profiles
 
         manifest = self._make_manifest(prompt="")
-        config = generate_ide_agent_files(manifest, "copilot")
+        config = generate_harness_agent_profiles(manifest, "copilot")
         content = config.files[0].content
         # Should still have component sections
         assert "## MCP Servers" in content
 
     def test_rules_markdown_no_components(self):
-        from services.agent_builder import AgentManifest, ManifestComponents, generate_ide_agent_files
+        from services.agent_builder import AgentManifest, ManifestComponents, generate_harness_agent_profiles
 
         manifest = AgentManifest(
             name="bare-agent",
@@ -1334,7 +1290,7 @@ class TestGenerateIdeAgentFiles:
             prompt="Just a prompt, no components.",
             components=ManifestComponents(),
         )
-        config = generate_ide_agent_files(manifest, "copilot")
+        config = generate_harness_agent_profiles(manifest, "copilot")
         content = config.files[0].content
         assert "Just a prompt, no components." in content
         assert "## MCP Servers" not in content
@@ -1342,10 +1298,10 @@ class TestGenerateIdeAgentFiles:
     # ── MCP entries ────────────────────────────────────────────
 
     def test_mcp_entries_use_observal_shim(self):
-        from services.agent_builder import generate_ide_agent_files
+        from services.agent_builder import generate_harness_agent_profiles
 
         manifest = self._make_manifest()
-        config = generate_ide_agent_files(manifest, "cursor")
+        config = generate_harness_agent_profiles(manifest, "cursor")
         for name, entry in config.mcp_servers.items():
             assert entry["command"] == "observal-shim"
             assert "--mcp-id" in entry["args"]
@@ -1355,7 +1311,7 @@ class TestGenerateIdeAgentFiles:
             AgentManifest,
             ManifestComponent,
             ManifestComponents,
-            generate_ide_agent_files,
+            generate_harness_agent_profiles,
         )
 
         manifest = AgentManifest(
@@ -1366,31 +1322,31 @@ class TestGenerateIdeAgentFiles:
                 skills=[ManifestComponent(name="s", version="1.0", git_url="url")],
             ),
         )
-        config = generate_ide_agent_files(manifest, "claude-code")
+        config = generate_harness_agent_profiles(manifest, "claude-code")
         assert config.mcp_servers == {}
         assert config.setup_commands == []
 
     # ── Name sanitization ──────────────────────────────────────
 
     def test_name_with_spaces_gets_sanitized(self):
-        from services.agent_builder import generate_ide_agent_files
+        from services.agent_builder import generate_harness_agent_profiles
 
         manifest = self._make_manifest(name="My Cool Agent!")
-        config = generate_ide_agent_files(manifest, "claude-code")
+        config = generate_harness_agent_profiles(manifest, "claude-code")
         rules = config.files[0]
         assert "My Cool Agent!" not in rules.path
         assert "My-Cool-Agent-" in rules.path
 
-    # ── Unsupported IDE ────────────────────────────────────────
+    # ── Unsupported harness ────────────────────────────────────────
 
-    def test_unsupported_ide_raises_value_error(self):
+    def test_unsupported_harness_raises_value_error(self):
         import pytest
 
-        from services.agent_builder import generate_ide_agent_files
+        from services.agent_builder import generate_harness_agent_profiles
 
         manifest = self._make_manifest()
-        with pytest.raises(ValueError, match="Unsupported IDE"):
-            generate_ide_agent_files(manifest, "notepad")
+        with pytest.raises(ValueError, match="Unsupported harness"):
+            generate_harness_agent_profiles(manifest, "notepad")
 
     # ── Hooks in markdown ──────────────────────────────────────
 
@@ -1399,7 +1355,7 @@ class TestGenerateIdeAgentFiles:
             AgentManifest,
             ManifestComponent,
             ManifestComponents,
-            generate_ide_agent_files,
+            generate_harness_agent_profiles,
         )
 
         manifest = AgentManifest(
@@ -1418,21 +1374,21 @@ class TestGenerateIdeAgentFiles:
                 ],
             ),
         )
-        config = generate_ide_agent_files(manifest, "gemini-cli")
+        config = generate_harness_agent_profiles(manifest, "claude-code")
         content = config.files[0].content
         assert "## Hooks" in content
         assert "**lint-hook**" in content
         assert "`pre_commit`" in content
 
-    # ── All supported IDEs produce valid output ────────────────
+    # ── All supported harnesses produce valid output ────────────────
 
-    def test_all_supported_ides_produce_output(self):
-        from services.agent_builder import SUPPORTED_IDES, generate_ide_agent_files
+    def test_all_supported_harnesses_produce_output(self):
+        from services.agent_builder import SUPPORTED_HARNESSES, generate_harness_agent_profiles
 
         manifest = self._make_manifest()
-        for ide in SUPPORTED_IDES:
-            config = generate_ide_agent_files(manifest, ide)
-            assert config.ide is not None
+        for harness in SUPPORTED_HARNESSES:
+            config = generate_harness_agent_profiles(manifest, harness)
+            assert config.harness is not None
             assert len(config.files) > 0
 
     # ── Manifest with prompt/description round-trips ───────────

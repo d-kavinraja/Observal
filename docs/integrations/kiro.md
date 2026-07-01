@@ -1,208 +1,233 @@
-<!-- SPDX-FileCopyrightText: 2026 Apoorv Garg <apoorvgarg.21@gmail.com> -->
-<!-- SPDX-FileCopyrightText: 2026 Hari Srinivasan <harisrini21@gmail.com> -->
-<!-- SPDX-FileCopyrightText: 2026 Shaan Narendran <shaannaren06@gmail.com> -->
-<!-- SPDX-FileCopyrightText: 2026 tsitu0 <tomsitu0102@gmail.com> -->
+<!-- SPDX-FileCopyrightText: 2026 Rajat <rajattempest8736@gmail.com> -->
 <!-- SPDX-License-Identifier: AGPL-3.0-only -->
 
-# Kiro CLI
+# Kiro
 
-[Kiro CLI](https://kiro.dev) is fully supported. It doesn't yet export OpenTelemetry natively ([kirodotdev/Kiro#6319](https://github.com/kirodotdev/Kiro/issues/6319)), so Observal uses a hook-based bridge for session lifecycle events. MCP traffic flows through `observal-shim` the same way it does everywhere else.
+Kiro is a first-class Observal harness integration. Observal can install Kiro agents,
+configure MCP servers, add hooks, expose skills, and collect Kiro session telemetry.
 
-## What you get
+---
 
-* **MCP server instrumentation** via `observal-shim` (or `observal-proxy` for HTTP MCPs)
-* **Session lifecycle events** via hooks — session start/stop, user prompts, tool use
-* **Superpowers** — packaged bundles of MCP + steering + hooks
-* **Steering files** — instruction files with YAML frontmatter for inclusion modes
-* **Rules (AGENTS.md)**
+## Overview
 
-## What you don't get (yet)
+Kiro agent profiles are JSON files. Project agents live in `.kiro/agents/`.
+User agents live in `~/.kiro/agents/`.
 
-Kiro upstream limits these; they resolve when Kiro implements native OTEL:
+When Observal installs a Kiro agent, it writes hook commands into that agent JSON.
+The default hooks run `observal_cli.hooks.kiro_session_push` for `userPromptSubmit`
+and `stop`.
 
-| Limitation | Detail |
-| --- | --- |
-| **Token counts** | Kiro exposes billing credits, not input/output tokens. Observal shows credits for Kiro sessions. |
-| **Cost per call** | Session-level credits only, not per-call. |
-| **Model name** | Often reported as `"auto"`; Observal resolves it from Kiro's local SQLite DB when possible. |
-| **Subagent lifecycle** | Kiro has no subagent events. |
+The hook reads Kiro session JSONL files from `~/.kiro/sessions/cli/`. It reads
+only new lines since the last push and sends them to Observal.
+
+---
+
+## Supported capabilities
+
+| Capability | Support |
+|---|---|
+| Agent profiles | Project and user scope |
+| Hook bridge | `userPromptSubmit` and `stop` by default |
+| Custom hooks | `agentSpawn`, `userPromptSubmit`, `preToolUse`, `postToolUse`, `stop` |
+| MCP servers | `.kiro/settings/mcp.json` and `~/.kiro/settings/mcp.json` |
+| Agent prompt | Registry prompts are embedded in the generated Kiro agent profile |
+| Guidance files | Scanned from steering files and `AGENTS.md`, not overwritten |
+| Skills | `.kiro/skills/{name}/SKILL.md` and `~/.kiro/skills/{name}/SKILL.md` |
+| Session parsing | Kiro JSONL parser |
+| Telemetry | MCP telemetry through `observal-shim`; session telemetry through hooks |
+| Model selection | Registry-backed Kiro model catalog |
+
+---
 
 ## Setup
 
-### 1. Install Kiro CLI
-
-macOS / Linux:
+### 1. Install the Observal CLI
 
 ```bash
-curl -fsSL https://cli.kiro.dev/install | bash
+uv tool install observal-cli
+# or: pipx install observal-cli
 ```
 
-Windows: download from [kiro.dev/download](https://kiro.dev/download).
-
-Then:
+### 2. Authenticate
 
 ```bash
-kiro --version
-kiro login
-```
-
-### 2. Install the Observal CLI
-
-```bash
-curl -fsSL https://raw.githubusercontent.com/BlazeUp-AI/Observal/main/install.sh | bash
 observal auth login
 ```
 
-### 3. Discover and instrument Kiro MCP servers
+This writes credentials to `~/.observal/config.json`.
+
+### 3. Pull an agent into Kiro
 
 ```bash
-# See what MCP servers are configured
-observal scan --ide kiro
-
-# Instrument them (hooks + shims + OTel)
-observal doctor patch --all --ide kiro
+observal agent pull <agent-name> --harness kiro
 ```
 
-Expected output from `doctor patch`:
+Kiro's default scope is user scope. By default, the agent is written to
+`~/.kiro/agents/{name}.json`.
 
-```
-Patching Kiro...
-  ✓ filesystem-server   wrapped
-  ✓ github-mcp          wrapped
-  ✓ mcp-obsidian        wrapped
-  ✓ Telemetry hooks installed
-
-Backup saved: .kiro/settings/mcp.json.20260421_143055.bak
-3 server(s) instrumented.
-```
-
-### 4. (Optional) Pull an agent from the registry
+To install into the current project:
 
 ```bash
-observal agent list
-observal agent pull <agent-id> --ide kiro
+observal agent pull <agent-name> --harness kiro --scope project
 ```
 
-This writes:
+Project agents are written to `.kiro/agents/{name}.json`.
 
-| File | Purpose |
-| --- | --- |
-| `~/.kiro/agents/<name>.json` | Agent config with Observal telemetry hooks |
-| `.kiro/steering/<name>.md` | Steering file (the agent's system instructions) |
+### 4. Refresh Kiro hooks
 
-### 5. Diagnose
+Pull the agent again to refresh its Observal hook commands.
 
-```bash
-observal doctor --ide kiro
-observal doctor --ide kiro --fix
-```
+Kiro attribution is installed per pulled agent because each hook command carries
+that agent's Observal UUID. `doctor patch` does not install generic Kiro hooks.
 
-Then restart Kiro.
+---
 
-## How telemetry reaches Observal
+## Config paths
 
-### Channel 1: MCP tool calls
+| Purpose | Project scope | User scope |
+|---|---|---|
+| Agent profile | `.kiro/agents/{name}.json` | `~/.kiro/agents/{name}.json` |
+| Guidance files | `.kiro/steering/*.md`, `AGENTS.md` | `~/.kiro/steering/*.md` |
+| MCP config | `.kiro/settings/mcp.json` | `~/.kiro/settings/mcp.json` |
+| Skill definition | `.kiro/skills/{name}/SKILL.md` | `~/.kiro/skills/{name}/SKILL.md` |
+| Hook config | Embedded in `.kiro/agents/{name}.json` | Embedded in `~/.kiro/agents/{name}.json` |
+| Custom hook scripts | `.kiro/hooks/` | `~/.kiro/hooks/` |
+| Session JSONL | `~/.kiro/sessions/cli/{session_id}.jsonl` | `~/.kiro/sessions/cli/{session_id}.jsonl` |
+| Credit metadata | `~/.kiro/sessions/cli/{session_id}.json` | `~/.kiro/sessions/cli/{session_id}.json` |
+| Observal credentials | `~/.observal/config.json` | `~/.observal/config.json` |
+| Last session cache | `~/.observal/.kiro-session` | `~/.observal/.kiro-session` |
 
-Same as everywhere else — `observal-shim` sits between Kiro and each MCP server. Every call becomes a span. Zero behavior change, transparent interception.
+Kiro MCP configs use the `mcpServers` key.
 
-### Channel 2: Session lifecycle (via hooks)
+---
 
-Observal installs shell hooks into each Kiro agent JSON. They fire at these events:
+## Hook spec
 
-| Kiro event | What it captures |
-| --- | --- |
-| `agentSpawn` | Session start |
-| `userPromptSubmit` | The user's prompt |
-| `preToolUse` | Tool name and input (before the call) |
-| `postToolUse` | Tool response (after the call) |
-| `stop` | Session end, credit usage, resolved model ID |
-
-Each hook is a `curl` call to `http://localhost:8000/api/v1/telemetry/hooks` (or your Observal server URL).
-
-### Example agent JSON
+Observal writes the telemetry hooks inside each Kiro agent JSON:
 
 ```json
 {
-  "name": "my-agent",
   "hooks": {
-    "agentSpawn":       "curl -s -X POST http://localhost:8000/api/v1/telemetry/hooks ...",
-    "userPromptSubmit": "curl -s -X POST http://localhost:8000/api/v1/telemetry/hooks ...",
-    "preToolUse":       "curl -s -X POST http://localhost:8000/api/v1/telemetry/hooks ...",
-    "postToolUse":      "curl -s -X POST http://localhost:8000/api/v1/telemetry/hooks ...",
-    "stop":             "curl -s -X POST http://localhost:8000/api/v1/telemetry/hooks ..."
+    "userPromptSubmit": [
+      {
+        "command": "OBSERVAL_AGENT_ID=<agent-uuid> python -m observal_cli.hooks.kiro_session_push"
+      }
+    ],
+    "stop": [
+      {
+        "command": "OBSERVAL_AGENT_ID=<agent-uuid> python -m observal_cli.hooks.kiro_session_push"
+      }
+    ]
   }
 }
 ```
 
-You don't write these by hand — `observal agent pull` generates them.
+On non-Windows platforms, generated server config may use `python3` instead of
+`python`. During `observal pull`, the CLI rewrites Observal hook commands to use
+the active Python interpreter.
 
-## View your traces
+### Attribution
 
-Open `http://localhost:3000/traces` and filter by **IDE → Kiro**.
+Kiro does not expose a reliable active Observal agent in its session JSONL. The
+per-agent hook command is the source of truth.
 
-Or CLI:
+1. `observal agent pull` writes the agent UUID into the Kiro hook command as
+   `OBSERVAL_AGENT_ID`.
+2. `kiro_session_push` reads that UUID when Kiro fires `userPromptSubmit` or
+   `stop`.
+3. The CLI looks up the UUID in `~/.observal/lockfile.json` under the `kiro`
+   harness.
+4. The session payload is sent with the lockfile agent id and version.
+5. If the UUID is missing or no lockfile entry exists, the session is left
+   unattributed instead of guessing from the current directory.
 
-```bash
-observal ops traces --limit 20
+### Event map
+
+| Observal event | Kiro event |
+|---|---|
+| `SessionStart` | `agentSpawn` |
+| `UserPromptSubmit` | `userPromptSubmit` |
+| `PreToolUse` | `preToolUse` |
+| `PostToolUse` | `postToolUse` |
+| `Stop` | `stop` |
+
+`preToolUse` and `postToolUse` hooks can include a `matcher`. Observal uses `*`
+when no matcher is set.
+
+---
+
+## Session push behavior
+
+`kiro_session_push` works as follows:
+
+1. Resolve the Kiro session ID from the hook payload or `~/.observal/.kiro-session`.
+2. Find `~/.kiro/sessions/cli/{session_id}.jsonl`.
+3. Read the saved byte cursor for the session.
+4. Read only new JSONL lines.
+5. Send the lines to Observal with the harness set to `kiro`.
+6. Advance the cursor after a successful push.
+
+On `stop`, the hook finalizes the cursor. It also reads
+`~/.kiro/sessions/cli/{session_id}.json` when present and sends Kiro credit usage.
+
+---
+
+## Agent profile format
+
+Observal generates Markdown agent profiles like this:
+
+```markdown
+---
+name: my-agent
+model: claude-sonnet-4
+---
+
+You are a Kiro agent with the following specialization...
 ```
 
-## Troubleshooting
+The `model` field is present when a model is resolved for the agent.
 
-### `observal auth login` fails — "server not reachable"
+---
 
-```bash
-observal config show
-observal config set server_url http://localhost:8000
-observal auth login
+## Skill file format
+
+Kiro skills live at:
+
+| Scope | Path |
+|---|---|
+| Project | `.kiro/skills/{name}/SKILL.md` |
+| User | `~/.kiro/skills/{name}/SKILL.md` |
+
+Example:
+
+```markdown
+---
+description: "Runs the project test suite"
+task_type: testing
+---
+
+# Run Tests
+
+Run `pytest -q` from the project root.
 ```
 
-### `observal doctor patch` wraps 0 servers
+---
 
-Your Kiro MCP config may be empty or in an unexpected location. Check:
+## Caveats
 
-```bash
-cat .kiro/settings/mcp.json        # project
-cat ~/.kiro/settings/mcp.json      # global
-```
+**Guidance files are scan-only.** Observal layers Kiro steering files and
+`AGENTS.md` as context, but does not overwrite them during pull.
 
-Add at least one MCP server to Kiro first, then re-run `doctor patch`.
+**Hooks are per agent.** Pulling a new agent includes telemetry hooks
+automatically. Pull the agent again to refresh its Observal hook command.
+`doctor patch` does not install generic Kiro attribution hooks.
 
-### Hooks not firing — sessions not appearing in the dashboard
+**Default scope is user.** `observal agent pull <agent-name> --harness kiro`
+writes to `~/.kiro/agents/` unless `--scope project` is set.
 
-1. Confirm the `OBSERVAL_API_KEY` env var is set where Kiro runs:
-   ```bash
-   echo $OBSERVAL_API_KEY
-   ```
-2. Open the agent JSON and verify a `hooks` section exists.
-3. Confirm the URL in the hook commands matches your server.
+**No Claude Code subagent layout.** Kiro reads
+`~/.kiro/sessions/cli/{session_id}.jsonl`. It does not scan Claude Code's
+`subagents/` directory.
 
-### `observal-shim` not found
-
-Reinstall:
-
-```bash
-curl -fsSL https://raw.githubusercontent.com/BlazeUp-AI/Observal/main/install.sh | bash
-which observal-shim
-```
-
-### `observal doctor` reports issues but `--fix` doesn't resolve
-
-Try `doctor patch` or run with verbose output:
-
-```bash
-observal doctor patch --all --ide kiro
-observal doctor --ide kiro --fix
-observal auth status
-```
-
-If the server is unreachable, see [Self-Hosting → Troubleshooting](../self-hosting/troubleshooting.md).
-
-## Detailed compatibility matrix
-
-For every gap between Kiro and Claude Code (hook event names, missing fields, etc.), see the [full matrix](https://github.com/BlazeUp-AI/Observal/blob/main/docs/internal/kiro-compatibility-matrix.md) maintained as research notes in the repo.
-
-## Related
-
-* [`observal agent pull`](../cli/pull.md)
-* [`observal scan`](../cli/scan.md)
-* [`observal doctor`](../cli/doctor.md)
+**MCP config is Kiro-specific.** Kiro uses `.kiro/settings/mcp.json` and
+`~/.kiro/settings/mcp.json`, not Claude Code MCP paths.

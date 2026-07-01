@@ -10,7 +10,7 @@
 
 [project]
 name = "observal-cli"
-version = "0.7.0"
+version = "1.9.7"
 description = "Observal MCP Server Registry & Agent Registry CLI"
 readme = "README.md"
 requires-python = ">=3.11"
@@ -24,6 +24,8 @@ dependencies = [
     "questionary>=2.0.0",
     "docker>=7.0.0",
     "asyncpg>=0.29.0",
+    "packaging>=21.0",
+    "loguru>=0.7.0",
 ]
 
 keywords = ["mcp", "model-context-protocol", "registry", "cli", "agents", "observability"]
@@ -46,16 +48,17 @@ classifiers = [
 migrate = ["pyarrow>=15.0.0"]
 
 [project.urls]
-Homepage = "https://github.com/BlazeUp-AI/Observal"
-Repository = "https://github.com/BlazeUp-AI/Observal"
-Changelog = "https://github.com/BlazeUp-AI/Observal/blob/main/CHANGELOG.md"
-Issues = "https://github.com/BlazeUp-AI/Observal/issues"
+Homepage = "https://github.com/Observal/Observal"
+Repository = "https://github.com/Observal/Observal"
+Changelog = "https://github.com/Observal/Observal/blob/main/CHANGELOG.md"
+Issues = "https://github.com/Observal/Observal/issues"
 
 [project.scripts]
 observal = "observal_cli.main:app"
 observal-shim = "observal_cli.shim:main"
 observal-proxy = "observal_cli.proxy:main"
 observal-sandbox-run = "observal_cli.sandbox_runner:main"
+observal-sandbox-mcp = "observal_cli.sandbox_mcp:main"
 #observal-graphrag-proxy = "observal_cli.graphrag_proxy:main"
 
 [build-system]
@@ -63,7 +66,7 @@ requires = ["hatchling"]
 build-backend = "hatchling.build"
 
 [tool.hatch.build.targets.wheel]
-packages = ["observal_cli"]
+packages = ["observal_cli", "packages/observal-shared/observal_shared"]
 
 # ── Ruff ─────────────────────────────────────────────────
 
@@ -98,7 +101,7 @@ ignore = [
 ]
 
 [tool.ruff.lint.isort]
-known-first-party = ["observal_cli", "models", "schemas", "services", "api", "ee"]
+known-first-party = ["observal_cli", "observal_shared", "models", "schemas", "services", "api", "ee"]
 
 [tool.ruff.lint.flake8-tidy-imports.banned-api]
 "ee".msg = "Core must not import from ee/. Only main.py may cross this boundary."
@@ -111,6 +114,7 @@ known-first-party = ["observal_cli", "models", "schemas", "services", "api", "ee
 "observal_cli/main.py" = ["E402"]       # imports after app = typer.Typer()
 "observal-server/main.py" = ["TID251"]  # main.py is the single allowed ee/ crossing point
 "observal-server/services/insights/__init__.py" = ["TID251"]  # insights loader imports from ee/
+"observal-server/services/audit/__init__.py" = ["TID251"]  # audit license gate imports from ee/
 "observal-server/api/routes/config.py" = ["TID251"]  # exposes licensed_features from ee/
 "observal-server/api/routes/ingest.py" = ["TID251"]  # ingest endpoint imports from ee/ gate
 "observal-server/worker.py" = ["TID251"]  # worker runs ee/ insight jobs
@@ -141,9 +145,9 @@ skips = [
 dev = [
     "fastapi>=0.135.3",
     "pydantic>=2.12.5",
-    "pydantic-settings>=2.13.1",
+    "pydantic-settings>=2.14.2",
     "sqlalchemy>=2.0.49",
-    "ruff==0.15.13",
+    "ruff==0.15.15",
     "pytest>=9.0.3",
     "pytest-asyncio>=1.3.0",
     "pytest-cov>=6.0",

@@ -4,10 +4,10 @@
 # tfsec:ignore:aws-elb-alb-not-public Public-facing load balancer is the entrypoint for end users; restrict reachability via var.alb_ingress_cidrs and (optionally) a WAF.
 resource "aws_lb" "app" {
   name               = "${local.name}-alb"
-  internal           = false
+  internal           = var.alb_scheme == "internal"
   load_balancer_type = "application"
-  security_groups    = [aws_security_group.alb.id]
-  subnets            = aws_subnet.public[*].id
+  security_groups    = [local.alb_sg_id]
+  subnets            = var.alb_scheme == "internal" ? local.private_subnet_ids : local.public_subnet_ids
 
   drop_invalid_header_fields = true
   tags                       = { Name = "${local.name}-alb" }
@@ -19,7 +19,7 @@ resource "aws_lb_target_group" "web" {
   name        = "${local.name}-web-tg"
   port        = 3000
   protocol    = "HTTP"
-  vpc_id      = aws_vpc.main.id
+  vpc_id      = local.vpc_id
   target_type = "ip"
 
   deregistration_delay = 30
@@ -40,7 +40,7 @@ resource "aws_lb_target_group" "api" {
   name        = "${local.name}-api-tg"
   port        = 8000
   protocol    = "HTTP"
-  vpc_id      = aws_vpc.main.id
+  vpc_id      = local.vpc_id
   target_type = "ip"
 
   deregistration_delay = 30
@@ -58,11 +58,11 @@ resource "aws_lb_target_group" "api" {
 }
 
 resource "aws_lb_target_group" "grafana" {
-  count       = local.clickhouse_self_hosted ? 1 : 0
+  count       = local.bundled_grafana_available ? 1 : 0
   name        = "${local.name}-grafana-tg"
   port        = 3001
   protocol    = "HTTP"
-  vpc_id      = aws_vpc.main.id
+  vpc_id      = local.vpc_id
   target_type = "ip"
 
   deregistration_delay = 30
@@ -80,7 +80,7 @@ resource "aws_lb_target_group" "grafana" {
 }
 
 resource "aws_lb_target_group_attachment" "grafana" {
-  count            = local.clickhouse_self_hosted ? 1 : 0
+  count            = local.bundled_grafana_available ? 1 : 0
   target_group_arn = aws_lb_target_group.grafana[0].arn
   target_id        = aws_network_interface.data_host[0].private_ip
   port             = 3001
@@ -125,7 +125,7 @@ resource "aws_lb_listener_rule" "http_api" {
 
   condition {
     path_pattern {
-      values = ["/api/*", "/auth/*", "/readyz", "/healthz", "/metrics"]
+      values = ["/api/*", "/auth/*", "/readyz", "/healthz", "/health", "/metrics"]
     }
   }
 }
@@ -171,7 +171,7 @@ resource "aws_lb_listener_rule" "http_api_docs" {
 }
 
 resource "aws_lb_listener_rule" "http_grafana" {
-  count        = (local.enable_tls ? 0 : 1) * (local.clickhouse_self_hosted ? 1 : 0)
+  count        = (local.enable_tls ? 0 : 1) * (local.bundled_grafana_available ? 1 : 0)
   listener_arn = aws_lb_listener.http.arn
   priority     = 200
 
@@ -250,7 +250,7 @@ resource "aws_lb_listener_rule" "https_api" {
 
   condition {
     path_pattern {
-      values = ["/api/*", "/auth/*", "/readyz", "/healthz", "/metrics"]
+      values = ["/api/*", "/auth/*", "/readyz", "/healthz", "/health", "/metrics"]
     }
   }
 }
@@ -294,7 +294,7 @@ resource "aws_lb_listener_rule" "https_api_docs" {
 }
 
 resource "aws_lb_listener_rule" "https_grafana" {
-  count        = (local.enable_tls ? 1 : 0) * (local.clickhouse_self_hosted ? 1 : 0)
+  count        = (local.enable_tls ? 1 : 0) * (local.bundled_grafana_available ? 1 : 0)
   listener_arn = aws_lb_listener.https[0].arn
   priority     = 200
 

@@ -1,12 +1,11 @@
 # SPDX-FileCopyrightText: 2026 Apoorv Garg <apoorvgarg.21@gmail.com>
 # SPDX-License-Identifier: AGPL-3.0-only
 
-# Data tier: a single EC2 host running ClickHouse + Grafana + Prometheus.
+# Data tier: a single EC2 host running ClickHouse plus optional observability.
 #
-# Why one host: ClickHouse needs persistent disk (no managed AWS offering); Grafana
-# queries ClickHouse heavily so co-locating avoids cross-AZ latency; Prometheus is
-# small and pairs naturally with Grafana. All three are managed via docker-compose
-# bootstrapped from user-data.
+# Why one host: ClickHouse needs persistent disk (no managed AWS offering). When
+# bundled observability is enabled, Prometheus and Grafana run on the same host.
+# The stack is managed via docker-compose bootstrapped from user-data.
 #
 # Why not an ASG: a 1-instance ASG buys nothing for HA (CH state lives on EBS,
 # not the instance) and complicates DNS. An aws_instance with a static private IP
@@ -14,8 +13,7 @@
 # the same either way; the answer for real CH HA is ClickHouse Cloud.
 #
 # When clickhouse_mode = "cloud", none of the resources in this file are created;
-# Grafana + Prometheus are skipped entirely (Grafana with Cloud is left to the
-# user — typically AWS Managed Grafana or Grafana Cloud).
+# Bundled observability is also skipped. Use AWS Managed Grafana or Grafana Cloud.
 
 data "aws_ami" "al2023" {
   count       = local.clickhouse_self_hosted ? 1 : 0
@@ -35,7 +33,7 @@ data "aws_ami" "al2023" {
 resource "aws_ebs_volume" "data" {
   count             = local.clickhouse_self_hosted ? 1 : 0
   availability_zone = local.azs[0]
-  size              = var.data_volume_size_gb
+  size              = local.effective_data_volume_size_gb
   type              = "gp3"
   encrypted         = true
 
@@ -46,7 +44,7 @@ resource "aws_ebs_volume" "data" {
 # survives instance replacement.
 resource "aws_network_interface" "data_host" {
   count           = local.clickhouse_self_hosted ? 1 : 0
-  subnet_id       = aws_subnet.private[0].id
+  subnet_id       = local.private_subnet_ids[0]
   security_groups = [aws_security_group.data_host[0].id]
 
   tags = { Name = "${local.name}-data-host-eni" }
@@ -54,23 +52,24 @@ resource "aws_network_interface" "data_host" {
 
 locals {
   data_host_user_data = local.clickhouse_self_hosted ? templatefile("${path.module}/user-data.sh.tftpl", {
-    region                 = var.region
-    ssm_prefix             = local.ssm_prefix
-    image_tag              = var.image_tag
-    data_retention_days    = var.data_retention_days
-    log_group              = aws_cloudwatch_log_group.data_host.name
-    backups_bucket         = aws_s3_bucket.backups.bucket
-    grafana_admin_user     = "admin"
-    clickhouse_db          = "observal"
-    grafana_root_url       = local.app_url
-    grafana_subpath_prefix = "/grafana"
+    region                           = var.region
+    ssm_prefix                       = local.ssm_prefix
+    image_tag                        = var.image_tag
+    log_group                        = aws_cloudwatch_log_group.data_host.name
+    backups_bucket                   = aws_s3_bucket.backups.bucket
+    grafana_admin_user               = "admin"
+    clickhouse_db                    = "observal"
+    grafana_root_url                 = local.app_url
+    grafana_subpath_prefix           = "/grafana"
+    observability_prometheus_enabled = local.observability_prometheus_enabled
+    observability_grafana_enabled    = local.observability_grafana_enabled
   }) : ""
 }
 
 resource "aws_instance" "data_host" {
   count                = local.clickhouse_self_hosted ? 1 : 0
   ami                  = data.aws_ami.al2023[0].id
-  instance_type        = var.data_instance_type
+  instance_type        = local.effective_data_instance_type
   iam_instance_profile = aws_iam_instance_profile.data_host[0].name
 
   network_interface {
@@ -79,7 +78,7 @@ resource "aws_instance" "data_host" {
   }
 
   user_data                   = local.data_host_user_data
-  user_data_replace_on_change = false
+  user_data_replace_on_change = true
 
   metadata_options {
     http_tokens   = "required"
@@ -107,7 +106,7 @@ resource "aws_volume_attachment" "data" {
   instance_id = aws_instance.data_host[0].id
 }
 
-# ── Internal DNS so ECS tasks can reach ClickHouse + Grafana ───────────────
+# ── Internal DNS so ECS tasks can reach ClickHouse and optional Grafana ────
 
 resource "aws_route53_record" "clickhouse_internal" {
   count   = local.clickhouse_self_hosted ? 1 : 0
@@ -119,7 +118,7 @@ resource "aws_route53_record" "clickhouse_internal" {
 }
 
 resource "aws_route53_record" "grafana_internal" {
-  count   = local.clickhouse_self_hosted ? 1 : 0
+  count   = local.bundled_grafana_available ? 1 : 0
   zone_id = aws_route53_zone.internal.zone_id
   name    = "grafana.${var.internal_dns_zone}"
   type    = "A"

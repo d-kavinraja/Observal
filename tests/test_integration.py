@@ -1,4 +1,5 @@
 # SPDX-FileCopyrightText: 2025 Observal Contributors
+# SPDX-FileCopyrightText: 2026 Riya Rani <rr1182764@gmail.com>
 # SPDX-License-Identifier: AGPL-3.0-only
 
 """Backend integration tests — real HTTP against a running Docker stack.
@@ -11,14 +12,15 @@ Run:
     uv run --with pytest --with pytest-asyncio --with httpx pytest ../tests/test_integration.py -v
 """
 
+import os
 import uuid
 
 import httpx
 import pytest
 
-BASE = "http://localhost:8000"
-ADMIN_EMAIL = "admin@demo.example"
-ADMIN_PASSWORD = "admin-changeme"
+BASE = os.getenv("INTEGRATION_BASE_URL", "http://localhost:8000")
+ADMIN_EMAIL = os.getenv("INTEGRATION_ADMIN_EMAIL", "admin@demo.example")
+ADMIN_PASSWORD = os.getenv("INTEGRATION_ADMIN_PASSWORD", "admin-changeme")
 
 
 def _api_reachable() -> bool:
@@ -200,31 +202,6 @@ class TestMcpCrud:
         assert r2.json()["status"] == "approved"
 
     @pytest.mark.asyncio
-    async def test_delete_mcp(self, client, admin_headers):
-        # Submit
-        await client.post(
-            "/api/v1/mcps/submit",
-            headers=admin_headers,
-            json={
-                "name": self.mcp_name,
-                "version": "1.0.0",
-                "description": "Test delete",
-                "owner": "admin",
-                "category": "developer-tools",
-                "git_url": "https://github.com/example/repo.git",
-                "command": "node",
-                "args": ["index.js"],
-            },
-        )
-        # Delete
-        r = await client.delete(f"/api/v1/mcps/{self.mcp_name}", headers=admin_headers)
-        assert r.status_code == 200
-
-        # Verify gone
-        r2 = await client.get(f"/api/v1/mcps/{self.mcp_name}", headers=admin_headers)
-        assert r2.status_code == 404
-
-    @pytest.mark.asyncio
     async def test_submit_invalid_category(self, client, admin_headers):
         r = await client.post(
             "/api/v1/mcps/submit",
@@ -284,7 +261,7 @@ class TestAgentLifecycle:
     @pytest.mark.asyncio
     async def test_delete_agent(self, client, admin_headers):
         # Create
-        await client.post(
+        created = await client.post(
             "/api/v1/agents",
             headers=admin_headers,
             json={
@@ -296,11 +273,33 @@ class TestAgentLifecycle:
                 "prompt": "You are a test agent.",
             },
         )
+        agent_id = created.json()["id"]
         r = await client.delete(f"/api/v1/agents/{self.agent_name}", headers=admin_headers)
         assert r.status_code == 200
 
         r2 = await client.get(f"/api/v1/agents/{self.agent_name}", headers=admin_headers)
         assert r2.status_code == 404
+
+        deleted = await client.get("/api/v1/agents/deleted", headers=admin_headers)
+        assert deleted.status_code == 200
+        assert self.agent_name in {a["name"] for a in deleted.json()}
+
+        recreated = await client.post(
+            "/api/v1/agents",
+            headers=admin_headers,
+            json={
+                "name": self.agent_name,
+                "description": "Reused name",
+                "version": "1.0.0",
+                "owner": "admin",
+                "model_name": "claude-sonnet-4-20250514",
+                "prompt": "You are a test agent.",
+            },
+        )
+        assert recreated.status_code == 200, recreated.text
+
+        restore = await client.patch(f"/api/v1/agents/{agent_id}/restore", headers=admin_headers, json={})
+        assert restore.status_code == 409
 
 
 # ── Prompt CRUD ──────────────────────────────────────────────────────────────
@@ -371,7 +370,7 @@ class TestFeedback:
                 "comment": "Great MCP!",
             },
         )
-        assert r2.status_code == 200, f"Feedback failed: {r2.text}"
+        assert r2.status_code in (200, 201), f"Feedback failed: {r2.text}"
 
         # Verify feedback appears
         r3 = await client.get(f"/api/v1/feedback/mcp/{mcp_id}", headers=admin_headers)
@@ -446,42 +445,6 @@ class TestRbac:
     async def test_unauthenticated_cannot_approve(self, client):
         r = await client.post("/api/v1/review/anything/approve")
         assert r.status_code in (401, 403)
-
-
-# ── Telemetry Ingest ─────────────────────────────────────────────────────────
-
-
-class TestTelemetryIngest:
-    """Ingest spans and verify they land."""
-
-    @pytest.mark.asyncio
-    async def test_ingest_batch(self, client, admin_headers):
-        trace_id = uuid.uuid4().hex
-        r = await client.post(
-            "/api/v1/telemetry/ingest",
-            headers=admin_headers,
-            json={
-                "traces": [
-                    {
-                        "trace_id": trace_id,
-                        "session_id": f"sess-{uuid.uuid4().hex[:8]}",
-                        "agent_id": "test-agent",
-                        "start_time": "2025-01-01T00:00:00Z",
-                    }
-                ],
-                "spans": [
-                    {
-                        "trace_id": trace_id,
-                        "span_id": uuid.uuid4().hex[:16],
-                        "name": "test-span",
-                        "type": "tool",
-                        "start_time": "2025-01-01T00:00:00Z",
-                        "end_time": "2025-01-01T00:00:01Z",
-                    }
-                ],
-            },
-        )
-        assert r.status_code == 200, f"Ingest failed: {r.text}"
 
 
 # ── Error Cases ──────────────────────────────────────────────────────────────

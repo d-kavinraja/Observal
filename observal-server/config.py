@@ -9,164 +9,51 @@
 # SPDX-FileCopyrightText: 2026 Vishnu Muthiah <vishnu.muthiah04@gmail.com>
 # SPDX-License-Identifier: AGPL-3.0-only
 
+"""Boot-time configuration: env vars required to start the server.
+
+All runtime-tunable settings have been moved to the Settings page
+(stored in enterprise_config table, accessed via services.dynamic_settings).
+
+Only infrastructure, crypto, and auth middleware vars remain here.
+"""
+
+import os
 from typing import Literal
 
-from pydantic import field_validator
 from pydantic_settings import BaseSettings
 
 
 class Settings(BaseSettings):
-    # Logging
-    LOG_LEVEL: str = "INFO"
-    LOG_FORMAT: Literal["json", "console"] = "json"
-
+    # Infrastructure
     DATABASE_URL: str = "postgresql+asyncpg://postgres:postgres@localhost:5432/observal"
     CLICKHOUSE_URL: str = "clickhouse://localhost:8123/observal"
     REDIS_URL: str = "redis://localhost:6379"
     REDIS_SOCKET_TIMEOUT: float = 2.0
+    REDIS_MAX_CONNECTIONS: int = 200
+
+    # Crypto
     SECRET_KEY: str = "change-me-to-a-random-string"
-    EVAL_MODEL_URL: str = ""  # OpenAI-compatible endpoint (e.g., https://bedrock-runtime.us-east-1.amazonaws.com)
-    EVAL_MODEL_API_KEY: str = ""  # API key or empty for AWS credential chain
-    EVAL_MODEL_NAME: str = ""  # e.g., us.anthropic.claude-3-5-haiku-20241022-v1:0
-    EVAL_MODEL_PROVIDER: str = ""  # "bedrock", "openai", or "" for auto-detect
-    AWS_REGION: str = "us-east-1"
 
-    # Multi-model insight generation:
-    # - INSIGHT_MODEL_SECTIONS: detailed narrative sections (default: Opus for depth)
-    # - INSIGHT_MODEL_SYNTHESIS: aggregation/synthesis (default: Sonnet for balance)
-    # - INSIGHT_MODEL_FACETS: per-session facet extraction (default: Haiku for cost)
-    # If blank, falls back to EVAL_MODEL_NAME for all.
-    INSIGHT_MODEL_SECTIONS: str = ""  # e.g., us.anthropic.claude-opus-4-6-20250514-v1:0
-    INSIGHT_MODEL_SYNTHESIS: str = ""  # e.g., us.anthropic.claude-sonnet-4-6-20250514-v1:0
-    INSIGHT_MODEL_FACETS: str = ""  # e.g., us.anthropic.claude-haiku-4-5-20251001-v1:0
-
-    # OAuth Settings
-    OAUTH_CLIENT_ID: str | None = None
-    OAUTH_CLIENT_SECRET: str | None = None
-    OAUTH_SERVER_METADATA_URL: str | None = None
-    FRONTEND_URL: str = "http://localhost:3000"
-
-    # Public-facing URLs for endpoint discovery.
-    # PUBLIC_URL: the base API URL clients use (derived from Request.base_url if empty).
-    # OTLP_HTTP_URL: optional override for OTLP collector endpoint (defaults to PUBLIC_URL).
-    PUBLIC_URL: str = ""
-    OTLP_HTTP_URL: str = ""
-
-    # JWT Settings
-    JWT_ACCESS_TOKEN_EXPIRE_MINUTES: int = 60
-    JWT_REFRESH_TOKEN_EXPIRE_DAYS: int = 7
-
-    # JWT / Asymmetric key signing
-    JWT_SIGNING_ALGORITHM: str = "ES256"  # ES256 (ECDSA) or RS256 (RSA)
+    # JWT key management (boot-time, keys loaded once at startup)
+    JWT_SIGNING_ALGORITHM: str = "ES256"
     JWT_KEY_DIR: str = "~/.observal/keys"
-    JWT_KEY_PASSWORD: str | None = None  # Optional password for private key encryption at rest
+    JWT_KEY_PASSWORD: str | None = None
 
-    # Long-lived JWT for OTEL hooks (30 days default)
-    JWT_HOOKS_TOKEN_EXPIRE_MINUTES: int = 43200
-
-    # Connection pool sizing (tune for N-replica deployments)
-    DB_POOL_SIZE: int = 10
-    DB_MAX_OVERFLOW: int = 20
-    REDIS_MAX_CONNECTIONS: int = 50
-    CLICKHOUSE_MAX_CONNECTIONS: int = 20
-    CLICKHOUSE_MAX_KEEPALIVE: int = 10
+    # Connection pool sizing (boot-time, pool created once at startup)
+    DB_POOL_SIZE: int = 30
+    DB_MAX_OVERFLOW: int = 50
+    CLICKHOUSE_MAX_CONNECTIONS: int = 100
+    CLICKHOUSE_MAX_KEEPALIVE: int = 100
     CLICKHOUSE_TIMEOUT: float = 10.0
 
-    # Git mirror storage (empty = system tempdir; set to shared path for multi-instance)
-    GIT_MIRROR_BASE_PATH: str = ""
-    # Set to true to allow git clone and MCP analysis against internal/private hosts.
-    # For self-hosted GitLab, GitHub Enterprise, or Gitea on a private network.
-    ALLOW_INTERNAL_GIT_URLS: bool = False
+    # Logging (boot-time, configured before event loop starts)
+    LOG_LEVEL: str = "INFO"
+    LOG_FORMAT: Literal["json", "console"] = "json"
 
-    # Multi-instance startup: skip DDL when using a dedicated init container
     SKIP_DDL_ON_STARTUP: bool = False
 
-    # Rate limiting
-    RATE_LIMIT_AUTH: str = "10/minute"
-    RATE_LIMIT_AUTH_STRICT: str = "5/minute"
-    # Comma-separated list of trusted proxy IPs whose X-Forwarded-For header is trusted.
-    # Leave empty to never trust X-Forwarded-For (safest default).
-    TRUSTED_PROXY_IPS: list[str] = []
-
-    @field_validator("TRUSTED_PROXY_IPS", mode="before")
-    @classmethod
-    def parse_trusted_proxy_ips(cls, v: object) -> list[str]:
-        import ipaddress
-
-        if isinstance(v, str):
-            ips = [ip.strip() for ip in v.split(",") if ip.strip()]
-        elif isinstance(v, list):
-            ips = [str(i) for i in v]
-        else:
-            return []
-        validated: list[str] = []
-        for ip in ips:
-            try:
-                ipaddress.ip_address(ip)
-                validated.append(ip)
-            except ValueError:
-                import logging
-
-                logging.getLogger(__name__).warning("TRUSTED_PROXY_IPS: ignoring invalid IP %r", ip)
-        return validated
-
-    # Agent Insights batch processing
-    INSIGHT_BATCH_ENABLED: bool = True
-    INSIGHT_BATCH_PERIOD_DAYS: int = 14
-    INSIGHT_MIN_SESSIONS: int = 5  # Minimum new sessions to trigger a report
-    INSIGHT_FACET_MAX_CALLS: int = 100  # Max LLM calls for facet extraction per report
-    INSIGHT_FACET_CONCURRENCY: int = 25  # Max concurrent facet extraction calls
-
-    # ClickHouse data retention
-    DATA_RETENTION_DAYS: int = 90
-
-    # Cache TTL defaults (seconds)
-    CACHE_TTL_DEFAULT: int = 30
-    CACHE_TTL_DASHBOARD: int = 60
-    CACHE_TTL_OTEL: int = 15
-
-    @field_validator("DATA_RETENTION_DAYS")
-    @classmethod
-    def validate_retention_days(cls, v: int) -> int:
-        if v < 0:
-            raise ValueError("DATA_RETENTION_DAYS must be >= 0 (0 disables retention)")
-        if 0 < v < 7:
-            raise ValueError("DATA_RETENTION_DAYS must be >= 7 to prevent accidental data loss")
-        return v
-
-    # Agent install policy
-    ALLOW_DRAFT_INSTALL: bool = False
-    ENABLE_OPENAPI: bool = False  # expose /docs, /redoc, /openapi.json
-    ENABLE_METRICS: bool = False  # expose Prometheus /metrics endpoint
-
-    # Enable the Insights feature. Enabled by default; set INSIGHTS_AVAILABLE=false to disable.
-    INSIGHTS_AVAILABLE: bool = True
-
-    # Deployment mode
-    DEPLOYMENT_MODE: Literal["local", "enterprise"] = "local"
-
-    # When True, password-based auth is disabled entirely.
-    # Users can only authenticate via SSO (OAuth/OIDC).
-    # Blocks: login, token, register, admin user create, admin password reset.
-    SSO_ONLY: bool = False
-
-    # SAML 2.0 SSO
-    SAML_IDP_ENTITY_ID: str = ""
-    SAML_IDP_SSO_URL: str = ""
-    SAML_IDP_SLO_URL: str = ""
-    SAML_IDP_X509_CERT: str = ""
-    SAML_IDP_METADATA_URL: str = ""
-    SAML_SP_ENTITY_ID: str = ""
-    SAML_SP_ACS_URL: str = ""
-    SAML_JIT_PROVISIONING: bool = True
-    SAML_DEFAULT_ROLE: str = "user"
-    SAML_SP_KEY_ENCRYPTION_PASSWORD: str = ""
-
-    # Minimum CLI version the server is compatible with.
-    # CLI will warn users to upgrade if their version is older.
-    MIN_CLI_VERSION: str = "0.4.0"
-
-    # Demo accounts (seeded on first startup if set and no real users exist)
+    # Demo accounts (boot-time, needed to bootstrap first login)
+    SEED_DEMO_ACCOUNTS: bool = True
     DEMO_SUPER_ADMIN_EMAIL: str | None = None
     DEMO_SUPER_ADMIN_PASSWORD: str | None = None
     DEMO_ADMIN_EMAIL: str | None = None
@@ -180,3 +67,9 @@ class Settings(BaseSettings):
 
 
 settings = Settings()
+
+# Derived: True when an enterprise license key is configured.
+# Used as the replacement for the removed DEPLOYMENT_MODE env var.
+# Feature availability is still gated by ee.license.is_feature_licensed();
+# this flag only controls "should we attempt to load ee/ packages."
+HAS_LICENSE: bool = bool(os.environ.get("OBSERVAL_LICENSE_KEY", ""))

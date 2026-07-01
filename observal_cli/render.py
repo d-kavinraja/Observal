@@ -94,26 +94,23 @@ def kv_panel(title: str, fields: list[tuple[str, str]], border_style: str = "blu
     return Panel("\n".join(lines), title=f"[bold]{title}[/bold]", border_style=border_style, expand=False)
 
 
-# ── IDE tag rendering ────────────────────────────────────
+# ── harness tag rendering ────────────────────────────────────
 
-_IDE_COLORS = {
+_HARNESS_COLORS = {
     "cursor": "cyan",
-    "vscode": "blue",
     "kiro": "magenta",
     "claude_code": "yellow",
     "claude-code": "yellow",
-    "gemini_cli": "red",
-    "gemini-cli": "red",
     "codex": "bright_blue",
     "copilot": "bright_magenta",
 }
 
 
-def ide_tags(ides: list[str]) -> str:
+def ide_tags(harnesses: list[str]) -> str:
     parts = []
-    for ide in ides:
-        color = _IDE_COLORS.get(ide, "white")
-        parts.append(f"[{color}]{ide}[/{color}]")
+    for harness in harnesses:
+        color = _HARNESS_COLORS.get(harness, "white")
+        parts.append(f"[{color}]{harness}[/{color}]")
     return " ".join(parts) if parts else "[dim]none[/dim]"
 
 

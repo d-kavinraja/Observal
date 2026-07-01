@@ -27,7 +27,10 @@ class ListingStatus(str, enum.Enum):
 
 class McpListing(Base):
     __tablename__ = "mcp_listings"
-    __table_args__ = (Index("ix_mcp_listings_submitted_by", "submitted_by"),)
+    __table_args__ = (
+        UniqueConstraint("name", name="uq_mcp_listings_name"),
+        Index("ix_mcp_listings_submitted_by", "submitted_by"),
+    )
 
     id: Mapped[uuid.UUID] = mapped_column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
     name: Mapped[str] = mapped_column(String(255), nullable=False)
@@ -41,6 +44,7 @@ class McpListing(Base):
         UUID(as_uuid=True), ForeignKey("component_bundles.id"), nullable=True
     )
     submitted_by: Mapped[uuid.UUID] = mapped_column(UUID(as_uuid=True), ForeignKey("users.id"), nullable=False)
+    co_authors: Mapped[list] = mapped_column(JSON, default=list)
     unique_agents: Mapped[int] = mapped_column(Integer, default=0)
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=lambda: datetime.now(UTC))
     updated_at: Mapped[datetime] = mapped_column(
@@ -69,7 +73,7 @@ class McpListing(Base):
     )
 
     # ------------------------------------------------------------------
-    # Deprecated compatibility properties — delegate to latest_version.
+    # Deprecated compatibility properties - delegate to latest_version.
     # These allow existing route/service code to keep working until the
     # version-aware API endpoints replace them.
     # ------------------------------------------------------------------
@@ -118,14 +122,14 @@ class McpListing(Base):
         return self.latest_version.download_count if self.latest_version else 0
 
     @property
-    def supported_ides(self) -> list:
-        return self.latest_version.supported_ides if self.latest_version else []
+    def supported_harnesses(self) -> list:
+        return self.latest_version.supported_harnesses if self.latest_version else []
 
-    @supported_ides.setter
-    def supported_ides(self, value: list) -> None:
+    @supported_harnesses.setter
+    def supported_harnesses(self, value: list) -> None:
         if not self.latest_version:
-            raise RuntimeError(f"{type(self).__name__} has no latest_version; cannot set supported_ides")
-        self.latest_version.supported_ides = value
+            raise RuntimeError(f"{type(self).__name__} has no latest_version; cannot set supported_harnesses")
+        self.latest_version.supported_harnesses = value
 
     @property
     def changelog(self) -> str | None:
@@ -278,7 +282,7 @@ class McpDownload(Base):
     id: Mapped[uuid.UUID] = mapped_column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
     listing_id: Mapped[uuid.UUID] = mapped_column(UUID(as_uuid=True), ForeignKey("mcp_listings.id"), nullable=False)
     user_id: Mapped[uuid.UUID] = mapped_column(UUID(as_uuid=True), ForeignKey("users.id"), nullable=False)
-    ide: Mapped[str] = mapped_column(String(50), nullable=False)
+    harness: Mapped[str] = mapped_column(String(50), nullable=False)
     downloaded_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=lambda: datetime.now(UTC))
 
 
@@ -321,7 +325,7 @@ class McpVersion(Base):
     mcp_validated: Mapped[bool] = mapped_column(Boolean, default=False)
     tools_schema: Mapped[dict | None] = mapped_column(JSON, nullable=True)
     environment_variables: Mapped[list | None] = mapped_column(JSON, nullable=True)
-    supported_ides: Mapped[list] = mapped_column(JSON, default=list)
+    supported_harnesses: Mapped[list] = mapped_column(JSON, default=list)
     setup_instructions: Mapped[str | None] = mapped_column(Text, nullable=True)
     source_url: Mapped[str | None] = mapped_column(String(500), nullable=True)
     source_ref: Mapped[str | None] = mapped_column(String(255), nullable=True)

@@ -3,8 +3,8 @@
 
 """Tests for the preview-config endpoint.
 
-Verifies that POST /api/v1/agents/preview-config returns IDE config files
-for all target IDEs without persisting anything to the database.
+Verifies that POST /api/v1/agents/preview-config returns harness config files
+for all target harnesses without persisting anything to the database.
 """
 
 from __future__ import annotations
@@ -52,9 +52,9 @@ def _app_with(user=None, db=None):
 
 @pytest.mark.asyncio
 class TestPreviewConfigNoComponents:
-    """Preview with no components should return configs for all IDEs."""
+    """Preview with no components should return configs for all harnesses."""
 
-    async def test_returns_configs_for_all_ides(self):
+    async def test_returns_configs_for_all_harnesses(self):
         app, db, _user = _app_with()
 
         async with AsyncClient(transport=ASGITransport(app=app), base_url="http://test") as client:
@@ -75,14 +75,12 @@ class TestPreviewConfigNoComponents:
         assert "claude-code" in configs
         assert "kiro" in configs
         assert "cursor" in configs
-        assert "vscode" in configs
-        assert "gemini-cli" in configs
         assert "codex" in configs
         assert "copilot" in configs
         assert "opencode" in configs
-        assert "copilot-cli" not in configs
+        assert "copilot-cli" in configs
 
-    async def test_claude_code_has_agent_file(self):
+    async def test_claude_code_has_agent_profile(self):
         app, db, _user = _app_with()
 
         async with AsyncClient(transport=ASGITransport(app=app), base_url="http://test") as client:
@@ -125,29 +123,10 @@ class TestPreviewConfigNoComponents:
         kiro_path = "~/.kiro/agents/kiro-test.json"
         assert kiro_path in files
         agent_json = json.loads(files[kiro_path])
+        assert agent_json["name"] == "kiro-test"
         assert agent_json["tools"] == ["*"]
-        assert agent_json["model"] is None
-        assert "includeMcpJson" in agent_json
+        assert agent_json["includeMcpJson"] is True
         assert "Agent Specialization" in agent_json["prompt"]
-
-    async def test_vscode_uses_correct_paths(self):
-        app, db, _user = _app_with()
-
-        async with AsyncClient(transport=ASGITransport(app=app), base_url="http://test") as client:
-            res = await client.post(
-                "/api/v1/agents/preview-config",
-                json={
-                    "name": "vs-test",
-                    "description": "",
-                    "prompt": "",
-                    "model_name": "",
-                    "components": [],
-                },
-            )
-
-        assert res.status_code == 200
-        files = res.json()["configs"]["vscode"]
-        assert ".github/instructions/vs-test.instructions.md" in files
 
     async def test_copilot_uses_agent_md_path(self):
         app, db, _user = _app_with()

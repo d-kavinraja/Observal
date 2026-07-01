@@ -17,7 +17,10 @@ from models.mcp import ListingStatus
 
 class PromptListing(Base):
     __tablename__ = "prompt_listings"
-    __table_args__ = (Index("ix_prompt_listings_submitted_by", "submitted_by"),)
+    __table_args__ = (
+        UniqueConstraint("name", name="uq_prompt_listings_name"),
+        Index("ix_prompt_listings_submitted_by", "submitted_by"),
+    )
 
     id: Mapped[uuid.UUID] = mapped_column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
     name: Mapped[str] = mapped_column(String(255), nullable=False)
@@ -30,6 +33,7 @@ class PromptListing(Base):
         UUID(as_uuid=True), ForeignKey("component_bundles.id"), nullable=True
     )
     submitted_by: Mapped[uuid.UUID] = mapped_column(UUID(as_uuid=True), ForeignKey("users.id"), nullable=False)
+    co_authors: Mapped[list] = mapped_column(JSON, default=list)
     unique_agents: Mapped[int] = mapped_column(Integer, default=0)
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=lambda: datetime.now(UTC))
     updated_at: Mapped[datetime] = mapped_column(
@@ -52,7 +56,7 @@ class PromptListing(Base):
     )
 
     # ------------------------------------------------------------------
-    # Deprecated compatibility properties — delegate to latest_version.
+    # Deprecated compatibility properties - delegate to latest_version.
     # ------------------------------------------------------------------
     @property
     def version(self) -> str:
@@ -99,14 +103,14 @@ class PromptListing(Base):
         return self.latest_version.download_count if self.latest_version else 0
 
     @property
-    def supported_ides(self) -> list:
-        return self.latest_version.supported_ides if self.latest_version else []
+    def supported_harnesses(self) -> list:
+        return self.latest_version.supported_harnesses if self.latest_version else []
 
-    @supported_ides.setter
-    def supported_ides(self, value: list) -> None:
+    @supported_harnesses.setter
+    def supported_harnesses(self, value: list) -> None:
         if not self.latest_version:
-            raise RuntimeError(f"{type(self).__name__} has no latest_version; cannot set supported_ides")
-        self.latest_version.supported_ides = value
+            raise RuntimeError(f"{type(self).__name__} has no latest_version; cannot set supported_harnesses")
+        self.latest_version.supported_harnesses = value
 
     @property
     def category(self) -> str:
@@ -165,7 +169,7 @@ class PromptDownload(Base):
     id: Mapped[uuid.UUID] = mapped_column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
     listing_id: Mapped[uuid.UUID] = mapped_column(UUID(as_uuid=True), ForeignKey("prompt_listings.id"), nullable=False)
     user_id: Mapped[uuid.UUID] = mapped_column(UUID(as_uuid=True), ForeignKey("users.id"), nullable=False)
-    ide: Mapped[str] = mapped_column(String(50), nullable=False)
+    harness: Mapped[str] = mapped_column(String(50), nullable=False)
     downloaded_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=lambda: datetime.now(UTC))
 
 
@@ -192,7 +196,7 @@ class PromptVersion(Base):
     reviewed_by: Mapped[uuid.UUID | None] = mapped_column(UUID(as_uuid=True), ForeignKey("users.id"), nullable=True)
     reviewed_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=lambda: datetime.now(UTC))
-    supported_ides: Mapped[list] = mapped_column(JSON, default=list)
+    supported_harnesses: Mapped[list] = mapped_column(JSON, default=list)
     category: Mapped[str] = mapped_column(String(100), nullable=False)
     template: Mapped[str] = mapped_column(Text, nullable=False)
     variables: Mapped[list] = mapped_column(JSON, default=list)

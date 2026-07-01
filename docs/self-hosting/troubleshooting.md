@@ -4,7 +4,7 @@
 
 # Troubleshooting
 
-Common failure modes and their fixes. If none of these match, open a [GitHub Discussion](https://github.com/BlazeUp-AI/Observal/discussions) with the output of `observal auth status` and relevant logs from `docker compose logs`.
+Common failure modes and their fixes. If none of these match, open a [GitHub Discussion](https://github.com/Observal/Observal/discussions) with the output of `observal auth status` and relevant logs from `docker compose logs`.
 
 ## Install and CLI
 
@@ -14,20 +14,20 @@ The CLI cannot reach the API. Check:
 
 ```bash
 docker compose -f docker/docker-compose.yml ps     # API status
-curl http://localhost:8000/health                  # API health
+curl http://localhost/health                       # API health
 observal config show                               # is server_url right?
 ```
 
 If `server_url` is wrong:
 
 ```bash
-observal config set server_url http://localhost:8000
+observal config set server_url http://localhost
 observal auth login
 ```
 
 ### `"System already initialized"` when logging in
 
-The server already has users, so bootstrap is disabled. Use `observal auth login` with an email + password or an API key — not a fresh bootstrap flow.
+The server already has users, so bootstrap is disabled. Use `observal auth login` with an email + password or an API key, not a fresh bootstrap flow.
 
 ### `observal-shim` not found
 
@@ -65,16 +65,16 @@ docker compose -f docker/docker-compose.yml logs observal-redis
 
 Common causes:
 
-* ClickHouse stuck during initial `CREATE TABLE` — restart it once the healthcheck passes on other DBs
+* ClickHouse stuck during initial `CREATE TABLE`. Restart it once the healthcheck passes on other DBs
 * `CLICKHOUSE_PASSWORD` mismatch between services and API config
 
 ### Services restart in a loop
 
 Check logs (`docker compose logs -f <service>`). Three frequent causes:
 
-* Memory limit too tight — bump limits in `docker-compose.yml`
-* Corrupt volume — wipe and restore from backup
-* Config error introduced during an upgrade — roll back
+* Memory limit too tight. Bump limits in `docker-compose.yml`
+* Corrupt volume. Wipe and restore from backup
+* Config error introduced during an upgrade. Roll back
 
 ## Auth
 
@@ -116,21 +116,18 @@ Run through, in order:
 # 1. Are traces arriving at all?
 observal ops telemetry status
 
-# 2. Is the telemetry buffer flushing?
-observal ops sync
+# 2. Is the shim wired in?
+observal doctor --harness <harness>
 
-# 3. Is the shim wired in?
-observal doctor --ide <ide>
-
-# 4. Is the API reachable from where the shim runs?
-curl http://localhost:8000/health
+# 3. Is the API reachable from where the shim runs?
+curl http://localhost/health
 ```
 
-If the shim is wrapped but traces aren't arriving, the shim may be silently dropping events because the API is unreachable. Check `~/.observal/telemetry_buffer.db` — if it's growing, that's exactly the issue.
+If the shim is wrapped but traces aren't arriving, the shim may be silently dropping events because the API is unreachable. Check `~/.observal/telemetry_buffer.db`. If it's growing, that's exactly the issue.
 
 ### `observal doctor patch` wraps 0 servers
 
-Your IDE's MCP config may be empty or in a non-standard location. Check:
+Your harness's MCP config may be empty or in a non-standard location. Check:
 
 ```bash
 cat .kiro/settings/mcp.json         # Kiro project
@@ -138,10 +135,9 @@ cat ~/.kiro/settings/mcp.json       # Kiro global
 cat ~/.claude/settings.json         # Claude Code
 cat .cursor/mcp.json                # Cursor
 cat .vscode/mcp.json                # VS Code
-cat .gemini/settings.json           # Gemini CLI
 ```
 
-If none exist, configure at least one MCP server in your IDE first, then re-run `doctor patch`.
+If none exist, configure at least one MCP server in your harness first, then re-run `doctor patch`.
 
 ### ClickHouse not receiving data
 
@@ -161,29 +157,6 @@ docker compose -f docker/docker-compose.yml exec observal-clickhouse \
   clickhouse-client --query "SELECT count() FROM observal.spans"
 ```
 
-## Evaluation
-
-### Scorecards return empty or all zeros
-
-* `EVAL_MODEL_NAME` probably isn't set. Without a real judge, scoring falls back to heuristics.
-* If Bedrock: verify `bedrock:InvokeModel` IAM permission for the configured model.
-* Tail API logs during an `observal admin eval run`:
-  ```bash
-  docker compose -f docker/docker-compose.yml logs -f observal-api
-  ```
-
-### `boto3.NoCredentialsError`
-
-AWS credentials aren't reaching the API container. Check `.env`:
-
-```
-AWS_ACCESS_KEY_ID=...
-AWS_SECRET_ACCESS_KEY=...
-AWS_REGION=us-east-1
-```
-
-For temporary credentials, also set `AWS_SESSION_TOKEN`.
-
 ## Web UI
 
 ### Blank white page
@@ -202,12 +175,12 @@ Browser cookies aren't being set. Usually one of:
 
 * `FRONTEND_URL` doesn't match the URL you're hitting.
 * `CORS_ALLOWED_ORIGINS` doesn't include your frontend origin.
-* You're on HTTP behind a proxy that's setting `secure` cookies — terminate TLS at your proxy and keep `FRONTEND_URL=https://...`.
+* You're on HTTP behind a proxy that's setting `secure` cookies. Terminate TLS at your proxy and keep `FRONTEND_URL=https://...`.
 
 ## Where to get more help
 
 * Logs: `docker compose -f docker/docker-compose.yml logs -f`
-* Health: `curl http://localhost:8000/health`
+* Health: `curl http://localhost/health`
 * Status: `observal auth status`
-* Community: [GitHub Discussions](https://github.com/BlazeUp-AI/Observal/discussions)
-* Bugs: [GitHub Issues](https://github.com/BlazeUp-AI/Observal/issues) — please use Discussions for questions, Issues only for confirmed bugs
+* Community: [GitHub Discussions](https://github.com/Observal/Observal/discussions)
+* Bugs: [GitHub Issues](https://github.com/Observal/Observal/issues). Please use Discussions for questions, Issues only for confirmed bugs

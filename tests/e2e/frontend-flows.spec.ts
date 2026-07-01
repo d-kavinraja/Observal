@@ -62,22 +62,6 @@ test.describe("Frontend Flows", () => {
   });
 
   /**
-   * Flow 1: Login page → submit credentials → land on registry home
-   */
-  test("login and land on registry home", async ({ page }) => {
-    await page.goto("/login");
-    await expect(page.locator("h1")).toContainText("Observal");
-
-    await page.fill("#email", "admin@demo.example");
-    await page.fill("#password", "admin-changeme");
-    await page.click('button[type="submit"]');
-
-    // Should redirect to registry home
-    await page.waitForURL("/", { timeout: 10_000 });
-    await expect(page.locator("body")).toContainText("Agent Registry");
-  });
-
-  /**
    * Flow 2: Registry home → search for an agent → open agent detail page
    */
   test("search for agent and open detail", async ({ page }) => {
@@ -112,14 +96,8 @@ test.describe("Frontend Flows", () => {
     await page.goto(`/agents/${agentName}`);
     await page.waitForLoadState("networkidle");
 
-    // Click the "Install" tab to show the pull command
-    const installTab = page.locator('[role="tab"]:has-text("Install")');
-    await installTab.click();
-    await page.waitForTimeout(300);
-
-    // Click the copy button next to the install command in the main content area
-    // The main tabpanel has the pull command with a copy button
-    const copyBtn = page.locator('[role="tabpanel"] button[aria-label="Copy command"]').first();
+    // The install command now lives in the detail sidebar.
+    const copyBtn = page.getByRole("button", { name: "Copy command" }).first();
     await expect(copyBtn).toBeVisible({ timeout: 5_000 });
     await copyBtn.click();
 

@@ -3,7 +3,7 @@
 
 from __future__ import annotations
 
-import uuid  # noqa: TC003 — needed at runtime by Pydantic
+import uuid  # noqa: TC003 - needed at runtime by Pydantic
 
 from pydantic import BaseModel, Field
 
@@ -18,7 +18,7 @@ class BulkAgentItem(BaseModel):
     prompt: str = ""
     model_name: str = "claude-sonnet-4"
     model_config_json: dict = {}
-    supported_ides: list[str] = []
+    supported_harnesses: list[str] = []
     components: list[dict] = []  # [{component_type, component_id}]
     external_mcps: list[dict] = []
 

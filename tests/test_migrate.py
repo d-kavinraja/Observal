@@ -21,22 +21,14 @@ from hypothesis import strategies as st
 from typer.testing import CliRunner
 
 from observal_cli.cmd_migrate import (
-    CHUNK_SIZE,
-    INSERT_ORDER,
-    JSONB_COLUMNS,
-    ChecksumResult,
-    ExportResult,
-    ImportResult,
-    PGEncoder,
-    ValidationResult,
-    _build_insert,
-    _build_select,
-    _coerce_value,
     _require_admin,
     _require_pyarrow,
-    _sha256_file,
 )
 from observal_cli.main import app as cli_app
+from observal_shared.migration.archive import _sha256_file
+from observal_shared.migration.constants import CHUNK_SIZE, INSERT_ORDER, JSONB_COLUMNS
+from observal_shared.migration.encoding import PGEncoder, _build_insert, _build_select, _coerce_value
+from observal_shared.migration.results import ChecksumResult, ExportResult, ImportResult, ValidationResult
 
 runner = CliRunner()
 
@@ -52,12 +44,12 @@ def _plain(text: str) -> str:
 
 class TestCLIRegistration:
     def test_migrate_command_group_exists(self):
-        result = runner.invoke(cli_app, ["migrate", "--help"])
+        result = runner.invoke(cli_app, ["server", "migrate", "--help"])
         assert result.exit_code == 0
         assert "migrate" in _plain(result.output).lower()
 
     def test_migrate_help_lists_subcommands(self):
-        result = runner.invoke(cli_app, ["migrate", "--help"])
+        result = runner.invoke(cli_app, ["server", "migrate", "--help"])
         assert result.exit_code == 0
         out = _plain(result.output)
         assert "export" in out
@@ -65,19 +57,19 @@ class TestCLIRegistration:
         assert "validate" in out
 
     def test_export_subcommand_help(self):
-        result = runner.invoke(cli_app, ["migrate", "export", "--help"])
+        result = runner.invoke(cli_app, ["server", "migrate", "export", "--help"])
         assert result.exit_code == 0
         assert "--db-url" in _plain(result.output)
 
     def test_import_subcommand_help(self):
-        result = runner.invoke(cli_app, ["migrate", "import", "--help"])
+        result = runner.invoke(cli_app, ["server", "migrate", "import", "--help"])
         assert result.exit_code == 0
         out = _plain(result.output)
         assert "--db-url" in out
         assert "--archive" in out
 
     def test_validate_subcommand_help(self):
-        result = runner.invoke(cli_app, ["migrate", "validate", "--help"])
+        result = runner.invoke(cli_app, ["server", "migrate", "validate", "--help"])
         assert result.exit_code == 0
         assert "--archive" in _plain(result.output)
 
@@ -194,7 +186,7 @@ class TestPGEncoder:
 
 class TestConstants:
     def test_insert_order_has_43_entries(self):
-        assert len(INSERT_ORDER) == 41
+        assert len(INSERT_ORDER) == 35
 
     def test_insert_order_no_duplicates(self):
         assert len(INSERT_ORDER) == len(set(INSERT_ORDER))
@@ -206,8 +198,6 @@ class TestConstants:
             "agents",
             "mcp_listings",
             "feedback",
-            "eval_runs",
-            "scorecards",
             "alert_rules",
             "alert_history",
             "component_bundles",
@@ -228,11 +218,11 @@ class TestConstants:
 
 class TestBuildSelect:
     def test_table_with_jsonb_columns(self):
-        columns = ["id", "name", "model_config_json", "external_mcps", "supported_ides", "created_at"]
+        jsonb_cols = JSONB_COLUMNS.get("agents", [])
+        columns = ["id", "name", *jsonb_cols, "created_at"]
         sql = _build_select("agents", columns)
-        assert '"model_config_json"::text AS "model_config_json"' in sql
-        assert '"external_mcps"::text AS "external_mcps"' in sql
-        assert '"supported_ides"::text AS "supported_ides"' in sql
+        for col in jsonb_cols:
+            assert f'"{col}"::text AS "{col}"' in sql
         # Non-JSONB columns should not have ::text
         assert "id::text" not in sql
         assert "name::text" not in sql
@@ -422,12 +412,12 @@ class TestBuildInsert:
         assert 'INSERT INTO "users" ("id", "name", "email")' in sql
 
     def test_multiple_jsonb_columns(self):
-        columns = ["id", "tools_schema", "environment_variables", "supported_ides"]
+        columns = ["id", "tools_schema", "environment_variables", "supported_harnesses"]
         col_types = {
             "id": "uuid",
             "tools_schema": "jsonb",
             "environment_variables": "jsonb",
-            "supported_ides": "jsonb",
+            "supported_harnesses": "jsonb",
         }
         sql = _build_insert("mcp_listings", columns, col_types)
         assert "$2::jsonb" in sql
@@ -492,7 +482,7 @@ class TestErrorPaths:
     def test_import_nonexistent_archive(self, mock_admin):
         result = runner.invoke(
             cli_app,
-            ["migrate", "import", "--db-url", "postgres://x", "--archive", "/nonexistent/archive.tar.gz"],
+            ["server", "migrate", "import", "--db-url", "postgres://x", "--archive", "/nonexistent/archive.tar.gz"],
         )
         assert result.exit_code != 0
 
@@ -500,13 +490,13 @@ class TestErrorPaths:
     def test_validate_nonexistent_archive(self, mock_admin):
         result = runner.invoke(
             cli_app,
-            ["migrate", "validate", "--archive", "/nonexistent/archive.tar.gz"],
+            ["server", "migrate", "validate", "--archive", "/nonexistent/archive.tar.gz"],
         )
         assert result.exit_code != 0
 
     def test_export_missing_db_url(self):
         """Export without --db-url should fail (required option)."""
-        result = runner.invoke(cli_app, ["migrate", "export"])
+        result = runner.invoke(cli_app, ["server", "migrate", "export"])
         assert result.exit_code != 0
 
 
@@ -522,7 +512,7 @@ class TestSecurity:
         mock_asyncio.run.side_effect = SystemExit(1)
         result = runner.invoke(
             cli_app,
-            ["migrate", "export", "--db-url", secret_url],
+            ["server", "migrate", "export", "--db-url", secret_url],
         )
         assert secret_url not in result.output
 
@@ -532,7 +522,7 @@ class TestSecurity:
         secret_url = "postgres://secret_user:secret_pass@secret-host:5432/secret_db"
         result = runner.invoke(
             cli_app,
-            ["migrate", "import", "--db-url", secret_url, "--archive", "/nonexistent.tar.gz"],
+            ["server", "migrate", "import", "--db-url", secret_url, "--archive", "/nonexistent.tar.gz"],
         )
         assert secret_url not in result.output
 
@@ -542,7 +532,7 @@ class TestSecurity:
         secret_url = "postgres://secret_user:secret_pass@secret-host:5432/secret_db"
         result = runner.invoke(
             cli_app,
-            ["migrate", "validate", "--archive", "/nonexistent.tar.gz", "--db-url", secret_url],
+            ["server", "migrate", "validate", "--archive", "/nonexistent.tar.gz", "--db-url", secret_url],
         )
         assert secret_url not in result.output
 
@@ -607,9 +597,6 @@ class TestInsertOrderDependencies:
         ("agents", "organizations"),
         ("mcp_listings", "organizations"),
         ("agent_components", "agents"),
-        ("eval_runs", "agents"),
-        ("scorecards", "eval_runs"),
-        ("scorecard_dimensions", "scorecards"),
         ("feedback", "users"),
         ("alert_history", "alert_rules"),
         ("mcp_downloads", "mcp_listings"),
@@ -951,17 +938,9 @@ class TestInsertOrderFKProperty:
         ("agent_download_records", "agents"),
         ("agent_download_records", "users"),
         ("component_download_records", "agents"),
-        ("dimension_weights", "agents"),
         ("agent_components", "agents"),
         ("feedback", "users"),
         ("alert_history", "alert_rules"),
-        ("eval_runs", "agents"),
-        ("eval_runs", "users"),
-        ("scorecards", "agents"),
-        ("scorecards", "eval_runs"),
-        ("scorecard_dimensions", "scorecards"),
-        ("trace_penalties", "scorecards"),
-        ("trace_penalties", "penalty_definitions"),
         # Tier 12 — insight tables
         ("insight_reports", "agents"),
         ("insight_reports", "users"),

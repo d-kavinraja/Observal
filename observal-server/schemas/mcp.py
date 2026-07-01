@@ -9,7 +9,12 @@ from datetime import datetime
 from pydantic import BaseModel, Field, field_validator, model_validator
 
 from models.mcp import ListingStatus
-from schemas.constants import VALID_MCP_CATEGORIES, VALID_MCP_FRAMEWORKS, make_ide_list_validator, make_option_validator
+from schemas.constants import (
+    VALID_MCP_CATEGORIES,
+    VALID_MCP_FRAMEWORKS,
+    make_harness_list_validator,
+    make_option_validator,
+)
 
 
 class McpEnvVar(BaseModel):
@@ -56,7 +61,7 @@ class McpSubmitRequest(BaseModel):
     headers: list[McpHeader] | None = None
     auto_approve: list[str] | None = None
     transport: str | None = None
-    supported_ides: list[str] = []
+    supported_harnesses: list[str] = []
     environment_variables: list[McpEnvVar] = []
     setup_instructions: str | None = None
     changelog: str | None = None
@@ -72,7 +77,7 @@ class McpSubmitRequest(BaseModel):
             raise ValueError(f"Invalid framework '{v}'. Valid options: {', '.join(VALID_MCP_FRAMEWORKS)}")
         return v
 
-    _validate_ides = field_validator("supported_ides")(make_ide_list_validator())
+    _validate_ides = field_validator("supported_harnesses")(make_harness_list_validator())
 
     @model_validator(mode="after")
     def _require_source(self):
@@ -96,13 +101,13 @@ class McpDraftRequest(BaseModel):
     headers: list[McpHeader] | None = None
     auto_approve: list[str] | None = None
     transport: str | None = None
-    supported_ides: list[str] = []
+    supported_harnesses: list[str] = []
     environment_variables: list[McpEnvVar] = []
     setup_instructions: str | None = None
     changelog: str | None = None
     client_analysis: ClientAnalysis | None = None
 
-    _validate_ides = field_validator("supported_ides")(make_ide_list_validator())
+    _validate_ides = field_validator("supported_harnesses")(make_harness_list_validator())
 
 
 class McpUpdateRequest(BaseModel):
@@ -120,7 +125,7 @@ class McpUpdateRequest(BaseModel):
     headers: list[McpHeader] | None = None
     auto_approve: list[str] | None = None
     transport: str | None = None
-    supported_ides: list[str] | None = None
+    supported_harnesses: list[str] | None = None
     environment_variables: list[McpEnvVar] | None = None
     setup_instructions: str | None = None
     changelog: str | None = None
@@ -148,7 +153,7 @@ class McpListingResponse(BaseModel):
     description: str
     category: str
     owner: str
-    supported_ides: list[str]
+    supported_harnesses: list[str]
     environment_variables: list[McpEnvVar] = []
     setup_instructions: str | None
     changelog: str | None
@@ -169,6 +174,13 @@ class McpListingResponse(BaseModel):
     updated_at: datetime
     custom_fields: list[McpCustomFieldResponse] = []
     validation_results: list[McpValidationResultResponse] = []
+    download_count: int = 0
+    user_permission: str | None = None
+
+    @field_validator("user_permission", mode="before")
+    @classmethod
+    def _coerce_user_permission(cls, v):
+        return v if isinstance(v, str) else None
 
     model_config = {"from_attributes": True}
 
@@ -180,23 +192,26 @@ class McpListingSummary(BaseModel):
     description: str
     category: str
     owner: str
-    supported_ides: list[str]
+    supported_harnesses: list[str]
     status: ListingStatus
     rejection_reason: str | None = None
+    updated_at: datetime | None = None
 
     model_config = {"from_attributes": True}
 
 
 class McpInstallRequest(BaseModel):
-    ide: str
+    harness: str
     env_values: dict[str, str] = {}
     header_values: dict[str, str] = {}
+    version: str | None = None  # Specific version to install (None = latest)
 
 
 class McpInstallResponse(BaseModel):
     listing_id: uuid.UUID
-    ide: str
+    harness: str
     config_snippet: dict
+    warnings: list[str] = []
 
 
 class McpAnalyzeRequest(BaseModel):

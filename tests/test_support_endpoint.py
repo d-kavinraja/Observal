@@ -22,7 +22,6 @@ Requirements: 2.4, 2.5, 2.6, 2.8, 2.9, 2.10, 2.11, 6.5, 6.6, 7.4, 8.1, 8.2
 from __future__ import annotations
 
 import asyncio
-import hashlib
 from datetime import UTC, datetime, timedelta
 from unittest.mock import AsyncMock, MagicMock, patch
 
@@ -33,7 +32,6 @@ from api.routes.support import (
     CollectRequest,
     _collect_aggregates,
     _collect_config,
-    _collect_errors,
     _collect_health,
     _collect_logs,
     _collect_versions,
@@ -383,7 +381,9 @@ class TestCollectConfig:
     async def test_returns_only_allowlisted_keys(self):
         result = await _collect_config()
         for key in result:
-            assert key in CONFIG_ALLOWLIST, f"Key '{key}' not in CONFIG_ALLOWLIST"
+            assert key in CONFIG_ALLOWLIST or "." in key or key == "licensed", (
+                f"Key '{key}' not in allowlist and not a dynamic setting"
+            )
 
     @pytest.mark.asyncio
     async def test_excludes_secret_key(self):
@@ -407,9 +407,9 @@ class TestCollectConfig:
         assert "DATABASE_URL" in result
 
     @pytest.mark.asyncio
-    async def test_includes_deployment_mode(self):
+    async def test_includes_licensed_flag(self):
         result = await _collect_config()
-        assert "DEPLOYMENT_MODE" in result
+        assert "licensed" in result
 
     @pytest.mark.asyncio
     async def test_result_is_dict(self):
@@ -538,148 +538,6 @@ class TestCollectAggregates:
             result = await _collect_aggregates(db)
 
         assert "unsafe table name" in result["ch_table_counts"]["Robert'; DROP TABLE--"]
-
-
-# ═════════════════════════════════════════════════════════════════════
-# _collect_errors
-# ═════════════════════════════════════════════════════════════════════
-
-
-class TestCollectErrors:
-    """Tests for error fingerprint collection."""
-
-    @pytest.mark.asyncio
-    async def test_returns_fingerprints_list(self):
-        with patch("api.routes.support._query", new_callable=AsyncMock) as mock_query:
-            mock_query.return_value = _mock_ch_response(
-                200,
-                json_data={
-                    "data": [
-                        {
-                            "error": 'File "app.py", line 10, in main\nValueError: bad',
-                            "start_time": "2025-07-15T10:00:00",
-                        },
-                    ]
-                },
-            )
-            db = _mock_db()
-            result = await _collect_errors(db)
-
-        assert "fingerprints" in result
-        assert len(result["fingerprints"]) == 1
-
-    @pytest.mark.asyncio
-    async def test_fingerprint_has_required_fields(self):
-        with patch("api.routes.support._query", new_callable=AsyncMock) as mock_query:
-            mock_query.return_value = _mock_ch_response(
-                200,
-                json_data={
-                    "data": [
-                        {"error": 'File "app.py", line 10, in main\nError', "start_time": "2025-07-15T10:00:00"},
-                    ]
-                },
-            )
-            db = _mock_db()
-            result = await _collect_errors(db)
-
-        fp = result["fingerprints"][0]
-        assert "fingerprint" in fp
-        assert "count" in fp
-        assert "first_seen" in fp
-        assert "last_seen" in fp
-        assert "stack_template" in fp
-
-    @pytest.mark.asyncio
-    async def test_fingerprint_is_sha256_of_template(self):
-        with patch("api.routes.support._query", new_callable=AsyncMock) as mock_query:
-            mock_query.return_value = _mock_ch_response(
-                200,
-                json_data={
-                    "data": [
-                        {"error": 'File "app.py", line 10, in main\nError', "start_time": "2025-07-15T10:00:00"},
-                    ]
-                },
-            )
-            db = _mock_db()
-            result = await _collect_errors(db)
-
-        fp = result["fingerprints"][0]
-        expected_hash = hashlib.sha256(fp["stack_template"].encode("utf-8")).hexdigest()
-        assert fp["fingerprint"] == expected_hash
-
-    @pytest.mark.asyncio
-    async def test_max_50_fingerprints(self):
-        """Requirement 2.10: up to 50 error fingerprints."""
-        errors = []
-        for i in range(100):
-            errors.append(
-                {
-                    "error": f'File "mod{i}.py", line {i}, in func{i}\nError{i}',
-                    "start_time": f"2025-07-15T10:{i % 60:02d}:00",
-                }
-            )
-
-        with patch("api.routes.support._query", new_callable=AsyncMock) as mock_query:
-            mock_query.return_value = _mock_ch_response(200, json_data={"data": errors})
-            db = _mock_db()
-            result = await _collect_errors(db)
-
-        assert len(result["fingerprints"]) <= 50
-
-    @pytest.mark.asyncio
-    async def test_stack_template_has_no_exception_messages(self):
-        """Requirement 2.10: stack_template has file paths + function names only."""
-        error_text = (
-            "Traceback (most recent call last):\n"
-            '  File "/app/server.py", line 42, in handle_request\n'
-            "    result = process(data)\n"
-            '  File "/app/processor.py", line 15, in process\n'
-            '    raise ValueError("secret data: password=hunter2")\n'
-            "ValueError: secret data: password=hunter2"
-        )
-        with patch("api.routes.support._query", new_callable=AsyncMock) as mock_query:
-            mock_query.return_value = _mock_ch_response(
-                200, json_data={"data": [{"error": error_text, "start_time": "2025-07-15T10:00:00"}]}
-            )
-            db = _mock_db()
-            result = await _collect_errors(db)
-
-        template = result["fingerprints"][0]["stack_template"]
-        assert "hunter2" not in template
-        assert "password" not in template
-        assert "secret data" not in template
-        # But file paths and function names should be present
-        assert "server.py" in template
-        assert "handle_request" in template
-
-    @pytest.mark.asyncio
-    async def test_empty_errors_returns_empty_list(self):
-        with patch("api.routes.support._query", new_callable=AsyncMock) as mock_query:
-            mock_query.return_value = _mock_ch_response(200, json_data={"data": []})
-            db = _mock_db()
-            result = await _collect_errors(db)
-
-        assert result["fingerprints"] == []
-
-    @pytest.mark.asyncio
-    async def test_duplicate_errors_grouped_by_fingerprint(self):
-        same_error = 'File "app.py", line 10, in main\nError'
-        with patch("api.routes.support._query", new_callable=AsyncMock) as mock_query:
-            mock_query.return_value = _mock_ch_response(
-                200,
-                json_data={
-                    "data": [
-                        {"error": same_error, "start_time": "2025-07-15T10:00:00"},
-                        {"error": same_error, "start_time": "2025-07-15T11:00:00"},
-                        {"error": same_error, "start_time": "2025-07-15T12:00:00"},
-                    ]
-                },
-            )
-            db = _mock_db()
-            result = await _collect_errors(db)
-
-        assert len(result["fingerprints"]) == 1
-        assert result["fingerprints"][0]["count"] == 3
 
 
 # ═════════════════════════════════════════════════════════════════════
@@ -1032,23 +890,12 @@ class TestConfigAllowlistFiltering:
     """Tests for CLI-side CONFIG_ALLOWLIST filtering (Requirement 7.4)."""
 
     def test_allowlist_contains_expected_keys(self):
+        """Boot-time allowlist contains infrastructure keys."""
         expected = {
             "DATABASE_URL",
             "CLICKHOUSE_URL",
             "REDIS_URL",
-            "REDIS_SOCKET_TIMEOUT",
-            "EVAL_MODEL_NAME",
-            "EVAL_MODEL_PROVIDER",
-            "AWS_REGION",
-            "FRONTEND_URL",
-            "JWT_ACCESS_TOKEN_EXPIRE_MINUTES",
-            "JWT_REFRESH_TOKEN_EXPIRE_DAYS",
             "JWT_SIGNING_ALGORITHM",
-            "JWT_HOOKS_TOKEN_EXPIRE_MINUTES",
-            "RATE_LIMIT_AUTH",
-            "RATE_LIMIT_AUTH_STRICT",
-            "DATA_RETENTION_DAYS",
-            "DEPLOYMENT_MODE",
         }
         assert expected.issubset(CONFIG_ALLOWLIST)
 
@@ -1070,15 +917,13 @@ class TestConfigAllowlistFiltering:
         raw_config = {
             "DATABASE_URL": "postgresql://user:pass@localhost/db",
             "SECRET_KEY": "super-secret-key-value",
-            "DEPLOYMENT_MODE": "docker",
             "OAUTH_CLIENT_SECRET": "oauth-secret",
-            "AWS_REGION": "us-east-1",
+            "JWT_SIGNING_ALGORITHM": "ES256",
         }
         filtered = {k: v for k, v in raw_config.items() if k in CONFIG_ALLOWLIST}
 
         assert "DATABASE_URL" in filtered
-        assert "DEPLOYMENT_MODE" in filtered
-        assert "AWS_REGION" in filtered
+        assert "JWT_SIGNING_ALGORITHM" in filtered
         assert "SECRET_KEY" not in filtered
         assert "OAUTH_CLIENT_SECRET" not in filtered
 

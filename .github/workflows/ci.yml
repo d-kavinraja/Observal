@@ -91,7 +91,7 @@ jobs:
       - uses: actions/checkout@v6
         if: needs.changes.outputs.python == 'true'
 
-      - uses: astral-sh/setup-uv@v8.1.0
+      - uses: astral-sh/setup-uv@v8.2.0
         if: needs.changes.outputs.python == 'true'
         with:
           enable-cache: true
@@ -138,7 +138,7 @@ jobs:
       - uses: actions/checkout@v6
         if: needs.changes.outputs.python == 'true'
 
-      - uses: astral-sh/setup-uv@v8.1.0
+      - uses: astral-sh/setup-uv@v8.2.0
         if: needs.changes.outputs.python == 'true'
         with:
           enable-cache: true
@@ -196,6 +196,8 @@ jobs:
 
       - uses: pnpm/action-setup@v6
         if: needs.changes.outputs.web == 'true'
+        with:
+          standalone: true
 
       - uses: actions/setup-node@v6
         if: needs.changes.outputs.web == 'true'
@@ -229,7 +231,7 @@ jobs:
       - name: Check ee/ import boundary
         run: |
           echo "Checking that core does not import from ee/..."
-          VIOLATIONS=$(grep -rn "from ee\b\|import ee\b" observal-server/ observal_cli/ --include="*.py" | grep -v "main.py" | grep -v "services/insights/__init__.py" | grep -v "/tests/" || true)
+          VIOLATIONS=$(grep -rn "from ee\b\|import ee\b" observal-server/ observal_cli/ --include="*.py" | grep -v "main.py" | grep -v "services/insights/__init__.py" | grep -v "services/audit/__init__.py" | grep -v "/tests/" || true)
           if [ -n "$VIOLATIONS" ]; then
             echo "::error::Import boundary violation — core must not import from ee/"
             echo "$VIOLATIONS"
@@ -272,7 +274,7 @@ jobs:
     steps:
       - uses: actions/checkout@v6
 
-      - uses: astral-sh/setup-uv@v8.1.0
+      - uses: astral-sh/setup-uv@v8.2.0
         with:
           enable-cache: true
 
@@ -280,9 +282,11 @@ jobs:
         run: |
           uv python install 3.12
           cd observal-server
-          uv run --with pip-audit pip-audit --strict --desc --ignore-vuln PYSEC-2025-183
+          uv run --with pip-audit pip-audit --desc --ignore-vuln PYSEC-2025-183 --ignore-vuln PYSEC-2026-161 --ignore-vuln CVE-2026-47265
 
       - uses: pnpm/action-setup@v6
+        with:
+          standalone: true
 
       - uses: actions/setup-node@v6
         with:

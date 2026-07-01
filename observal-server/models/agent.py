@@ -26,24 +26,6 @@ class AgentStatus(str, enum.Enum):
     archived = "archived"
 
 
-class AgentVisibility(str, enum.Enum):
-    public = "public"
-    private = "private"
-
-
-class AgentTeamAccess(Base):
-    __tablename__ = "agent_team_access"
-
-    id: Mapped[uuid.UUID] = mapped_column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
-    agent_id: Mapped[uuid.UUID] = mapped_column(
-        UUID(as_uuid=True), ForeignKey("agents.id", ondelete="CASCADE"), nullable=False
-    )
-    group_name: Mapped[str] = mapped_column(String(255), nullable=False)
-    permission: Mapped[str] = mapped_column(String(50), nullable=False)  # 'view', 'edit'
-
-    agent: Mapped["Agent"] = relationship(back_populates="team_accesses")
-
-
 class AgentVersion(Base):
     __tablename__ = "agent_versions"
     __table_args__ = (
@@ -61,16 +43,16 @@ class AgentVersion(Base):
     prompt: Mapped[str] = mapped_column(Text, nullable=False, default="")
     model_name: Mapped[str] = mapped_column(String(100), nullable=False)
     model_config_json: Mapped[dict] = mapped_column(JSON, default=dict)
-    # Per-IDE model overrides: {"claude-code": "claude-sonnet-4-5", "kiro": "claude-opus-4-5", ...}
-    # Empty dict means "use model_name as the default for every IDE that accepts a model choice".
-    # Missing key for an IDE that accepts a choice means "emit auto sentinel".
-    models_by_ide: Mapped[dict] = mapped_column(JSON, default=dict, nullable=False)
+    # Per-harness model overrides: {"claude-code": "claude-sonnet-4-5", "kiro": "claude-opus-4-5", ...}
+    # Empty dict means "use model_name as the default for every harness that accepts a model choice".
+    # Missing key for an harness that accepts a choice means "emit auto sentinel".
+    models_by_harness: Mapped[dict] = mapped_column(JSON, default=dict, nullable=False)
     external_mcps: Mapped[list] = mapped_column(JSON, default=list)
-    supported_ides: Mapped[list] = mapped_column(JSON, default=list)
-    required_ide_features: Mapped[list] = mapped_column(JSON, default=list)
-    inferred_supported_ides: Mapped[list] = mapped_column(JSON, default=list)
+    supported_harnesses: Mapped[list] = mapped_column(JSON, default=list)
+    required_capabilities: Mapped[list] = mapped_column(JSON, default=list)
+    inferred_supported_harnesses: Mapped[list] = mapped_column(JSON, default=list)
     yaml_snapshot: Mapped[str | None] = mapped_column(Text, nullable=True)
-    ide_configs: Mapped[dict | None] = mapped_column(JSON, nullable=True)
+    harness_configs: Mapped[dict | None] = mapped_column(JSON, nullable=True)
     lock_snapshot: Mapped[str | None] = mapped_column(Text, nullable=True)
     status: Mapped[AgentStatus] = mapped_column(Enum(AgentStatus), default=AgentStatus.pending)
     is_prerelease: Mapped[bool] = mapped_column(Boolean, default=False)
@@ -98,27 +80,37 @@ class AgentVersion(Base):
 
 class Agent(Base):
     __tablename__ = "agents"
-    __table_args__ = (UniqueConstraint("name", "created_by", name="uq_agents_name_created_by"),)
 
     id: Mapped[uuid.UUID] = mapped_column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
     name: Mapped[str] = mapped_column(String(255), nullable=False)
     owner: Mapped[str] = mapped_column(String(255), nullable=False)
-    visibility: Mapped[AgentVisibility] = mapped_column(Enum(AgentVisibility), default=AgentVisibility.private)
     owner_org_id: Mapped[uuid.UUID | None] = mapped_column(
         UUID(as_uuid=True), ForeignKey("organizations.id"), nullable=True
     )
-    co_maintainers: Mapped[list] = mapped_column(JSON, default=list)
+    co_authors: Mapped[list] = mapped_column(JSON, default=list)
     latest_version_id: Mapped[uuid.UUID | None] = mapped_column(
         UUID(as_uuid=True),
         ForeignKey("agent_versions.id", use_alter=True, ondelete="SET NULL"),
         nullable=True,
     )
+    category: Mapped[str | None] = mapped_column(String(100), nullable=True)
     created_by: Mapped[uuid.UUID] = mapped_column(UUID(as_uuid=True), ForeignKey("users.id"), nullable=False)
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=lambda: datetime.now(UTC))
+    deleted_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
     updated_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True),
         default=lambda: datetime.now(UTC),
         onupdate=lambda: datetime.now(UTC),
+    )
+
+    __table_args__ = (
+        Index(
+            "uq_agents_active_name",
+            "name",
+            unique=True,
+            postgresql_where=deleted_at.is_(None),
+            sqlite_where=deleted_at.is_(None),
+        ),
     )
 
     versions: Mapped[list["AgentVersion"]] = relationship(
@@ -130,12 +122,9 @@ class Agent(Base):
     latest_version: Mapped["AgentVersion | None"] = relationship(
         foreign_keys=[latest_version_id], lazy="selectin", uselist=False, post_update=True
     )
-    team_accesses: Mapped[list["AgentTeamAccess"]] = relationship(
-        back_populates="agent", lazy="selectin", cascade="all, delete-orphan"
-    )
 
     # ------------------------------------------------------------------
-    # Deprecated compatibility properties — delegate to latest_version.
+    # Deprecated compatibility properties - delegate to latest_version.
     # These allow existing route/service code to keep working until the
     # version-aware API endpoints (issues #620/#621) replace them.
     # ------------------------------------------------------------------
@@ -190,14 +179,14 @@ class Agent(Base):
         self.latest_version.model_config_json = value
 
     @property
-    def models_by_ide(self) -> dict:
-        return self.latest_version.models_by_ide if self.latest_version else {}
+    def models_by_harness(self) -> dict:
+        return self.latest_version.models_by_harness if self.latest_version else {}
 
-    @models_by_ide.setter
-    def models_by_ide(self, value: dict) -> None:
+    @models_by_harness.setter
+    def models_by_harness(self, value: dict) -> None:
         if not self.latest_version:
-            raise RuntimeError("Agent has no latest_version; cannot set models_by_ide")
-        self.latest_version.models_by_ide = value
+            raise RuntimeError("Agent has no latest_version; cannot set models_by_harness")
+        self.latest_version.models_by_harness = value
 
     @property
     def external_mcps(self) -> list:
@@ -210,34 +199,34 @@ class Agent(Base):
         self.latest_version.external_mcps = value
 
     @property
-    def supported_ides(self) -> list:
-        return self.latest_version.supported_ides if self.latest_version else []
+    def supported_harnesses(self) -> list:
+        return self.latest_version.supported_harnesses if self.latest_version else []
 
-    @supported_ides.setter
-    def supported_ides(self, value: list) -> None:
+    @supported_harnesses.setter
+    def supported_harnesses(self, value: list) -> None:
         if not self.latest_version:
-            raise RuntimeError("Agent has no latest_version; cannot set supported_ides")
-        self.latest_version.supported_ides = value
+            raise RuntimeError("Agent has no latest_version; cannot set supported_harnesses")
+        self.latest_version.supported_harnesses = value
 
     @property
-    def required_ide_features(self) -> list:
-        return self.latest_version.required_ide_features if self.latest_version else []
+    def required_capabilities(self) -> list:
+        return self.latest_version.required_capabilities if self.latest_version else []
 
-    @required_ide_features.setter
-    def required_ide_features(self, value: list) -> None:
+    @required_capabilities.setter
+    def required_capabilities(self, value: list) -> None:
         if not self.latest_version:
-            raise RuntimeError("Agent has no latest_version; cannot set required_ide_features")
-        self.latest_version.required_ide_features = value
+            raise RuntimeError("Agent has no latest_version; cannot set required_capabilities")
+        self.latest_version.required_capabilities = value
 
     @property
-    def inferred_supported_ides(self) -> list:
-        return self.latest_version.inferred_supported_ides if self.latest_version else []
+    def inferred_supported_harnesses(self) -> list:
+        return self.latest_version.inferred_supported_harnesses if self.latest_version else []
 
-    @inferred_supported_ides.setter
-    def inferred_supported_ides(self, value: list) -> None:
+    @inferred_supported_harnesses.setter
+    def inferred_supported_harnesses(self, value: list) -> None:
         if not self.latest_version:
-            raise RuntimeError("Agent has no latest_version; cannot set inferred_supported_ides")
-        self.latest_version.inferred_supported_ides = value
+            raise RuntimeError("Agent has no latest_version; cannot set inferred_supported_harnesses")
+        self.latest_version.inferred_supported_harnesses = value
 
     @property
     def status(self) -> "AgentStatus":

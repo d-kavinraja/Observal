@@ -6,38 +6,38 @@
 
 # Run a team-wide agent registry
 
-Once two or more people are authoring agents, you need a single source of truth. Observal becomes your team's internal Docker Hub for AI agents — with review, RBAC, telemetry, and evaluation baked in.
+Once two or more people are authoring agents, you need a single source of truth. Observal becomes your team's internal Docker Hub for AI agents, with review, RBAC, and telemetry baked in.
 
 ## What changes at team scale
 
-* **Discovery** — everyone sees the same list of agents, MCPs, skills, hooks, prompts, and sandboxes.
-* **Review** — admins approve what appears in the public listing. Authors' own items are still immediately usable.
-* **Governance** — RBAC roles (`super_admin`, `admin`, `reviewer`, `user`) control who can publish and approve.
-* **Visibility** — centralized dashboards instead of "ask Sarah which version she's running."
-* **Evaluation** — canonical scorecards per agent instead of N engineers evaluating in isolation.
+* **Discovery**: everyone sees the same list of agents, MCPs, skills, hooks, prompts, and sandboxes.
+* **Review**: admins approve what appears in the public listing. Authors' own items are still immediately usable.
+* **Governance**: RBAC roles (`super_admin`, `admin`, `reviewer`, `user`) control who can publish and approve.
+* **Visibility**: centralized dashboards instead of "ask Sarah which version she's running."
 
 ## Setup shape
 
 Deploy once, everyone points at it.
 
-```
-                        ┌──────────────────────┐
-                        │  Observal server     │
-                        │  (self-hosted)       │
-                        │                      │
-                        │   Postgres           │
-                        │   ClickHouse         │
-                        │   Redis              │
-                        │   API + Web UI       │
-                        └──────────┬───────────┘
-                                   │
-              ┌────────────────────┼────────────────────┐
-              │                    │                    │
-         Engineer A           Engineer B           Engineer C
-         Claude Code            Kiro                Cursor
+```mermaid
+flowchart TB
+    server["Observal server - API + Web UI"]
+    db[(PostgreSQL)]
+    ch[(ClickHouse)]
+    redis[(Redis)]
+    a["Engineer A - Claude Code"]
+    b["Engineer B - Kiro"]
+    c["Engineer C - Cursor"]
+
+    server --> db
+    server --> ch
+    server --> redis
+    a --> server
+    b --> server
+    c --> server
 ```
 
-Install the server once — [Self-Hosting](../self-hosting/README.md). Then every engineer installs the CLI and runs `observal auth login` pointed at your shared server URL.
+Install the server once ([Self-Hosting](../self-hosting/README.md)). Then every engineer installs the CLI and runs `observal auth login` pointed at your shared server URL.
 
 ## Users and roles
 
@@ -48,7 +48,7 @@ Four roles, RBAC-enforced on every endpoint.
 | `user` | Publish components (subject to review), install agents, view their own traces | Approve submissions, see other users' private traces, change server settings |
 | `reviewer` | Everything `user` can + approve/reject submissions | Change server settings, manage users |
 | `admin` | Everything `reviewer` can + manage users, change server settings | Only restriction: certain super-admin operations |
-| `super_admin` | Everything | — |
+| `super_admin` | Everything | - |
 
 Manage users:
 
@@ -66,19 +66,19 @@ Two commands to get them productive:
 
 ```bash
 # The new engineer runs:
-curl -fsSL https://raw.githubusercontent.com/BlazeUp-AI/Observal/main/install.sh | bash
+curl -fsSL https://raw.githubusercontent.com/Observal/Observal/main/install.sh | bash
 observal auth login --server https://observal.your-company.internal
 ```
 
-Self-registration is enabled in `DEPLOYMENT_MODE=local`. For enterprise mode (SSO / SCIM), users provision via your IdP — see [Authentication and SSO](../self-hosting/authentication.md).
+For managed deployments, users authenticate through SSO or are provisioned by an admin. See [Authentication and SSO](../self-hosting/authentication.md).
 
-After registering, they can:
+After logging in, they can:
 
 ```bash
 observal agent list                           # see every agent the team has published
-observal agent pull team-reviewer --ide claude-code # install one
+observal agent pull team-reviewer --harness claude-code # install one
 observal scan                                 # discover what they have installed
-observal doctor patch --all --all-ides        # instrument everything
+observal doctor patch --all --all-harnesses        # instrument everything
 ```
 
 ## Review workflow
@@ -95,7 +95,7 @@ observal admin review reject <id> --reason "missing env var docs"
 What reviewers look for:
 
 * Does the README/description make it clear what the component does?
-* Does the MCP analysis (from `submit`) look correct — tools, env vars, transport?
+* Does the MCP analysis (from `submit`) look correct: tools, env vars, transport?
 * Are required env vars documented?
 * Is the repo URL trustworthy (pinned commit or tag)?
 
@@ -108,34 +108,22 @@ Because every engineer's shim streams into the same server, `observal ops` becom
 ```bash
 observal ops top --type agent           # most-used agents across the team
 observal ops top --type mcp             # hottest MCP servers
-observal ops overview                   # summary stats
 ```
 
-Filters in the web UI let you slice by user, agent, IDE, and time range.
-
-## Scorecards as team truth
-
-When someone claims "v2 of the reviewer agent is better," you don't take their word for it:
-
-```bash
-observal admin eval compare team-reviewer --a 1.0.0 --b 2.0.0
-```
-
-If the comparison is favorable, publish v2. If not, v1 stays canonical. See [Evaluate and compare agents](evaluate-agents.md).
+Filters in the web UI let you slice by user, agent, harness, and time range.
 
 ## Enterprise concerns
 
-For orgs that need SSO, SCIM, and audit logging, enable enterprise mode:
+For orgs that need SSO and audit logging, add an enterprise license, then configure OIDC in **Admin → SSO**:
 
-```
-DEPLOYMENT_MODE=enterprise
-OAUTH_CLIENT_ID=...
-OAUTH_CLIENT_SECRET=...
-OAUTH_SERVER_METADATA_URL=...
-```
+| Setting | Value |
+| --- | --- |
+| `oauth.client_id` | Your IdP client ID |
+| `oauth.client_secret` | Your IdP client secret |
+| `oauth.server_metadata_url` | Your IdP discovery URL |
 
-See [Authentication and SSO](../self-hosting/authentication.md). The enterprise CLI adds SCIM-related commands (see `/ee/docs/cli.md` in the repo).
+Restart the API after OIDC changes. See [Authentication and SSO](../self-hosting/authentication.md).
 
 ## Next
 
-→ [Self-Hosting](../self-hosting/README.md) — the operator's playbook for actually running the server this use case depends on.
+→ [Self-Hosting](../self-hosting/README.md): the operator's playbook for actually running the server this use case depends on.

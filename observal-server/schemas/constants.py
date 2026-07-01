@@ -10,41 +10,37 @@ This module is the single source of truth for constrained field values.
 The CLI mirrors these in ``observal_cli/constants.py`` -- a sync test
 (``tests/test_constants_sync.py``) ensures they stay in lockstep.
 
-IDE-specific data (features, paths, scopes) is defined in
-``schemas/ide_registry.py``; the lists below are derived from it.
+harness-specific data (features, paths, scopes) is defined in
+``schemas/harness_registry.py``; the lists below are derived from it.
 """
 
 from __future__ import annotations
 
 import re
 
-from schemas.ide_registry import get_ide_feature_matrix, get_valid_ides
+from schemas.harness_registry import get_harness_capability_matrix, get_valid_harnesses
 
 # ── Name validation ───────────────────────────────────────────
 
 AGENT_NAME_REGEX = re.compile(r"^[a-z0-9][a-z0-9_-]*$")
 
-# ── IDE / client names (hyphen-canonical) ───────────────────
-# Derived from IDE_REGISTRY key order.
-VALID_IDES: list[str] = get_valid_ides()
+# ── harness / client names (hyphen-canonical) ───────────────────
+# Derived from HARNESS_REGISTRY key order.
+VALID_HARNESSES: list[str] = get_valid_harnesses()
 
-# ── IDE feature capabilities ──────────────────────────────────
-# IDE_FEATURES defines the vocabulary of possible features (used by
-# Pydantic validators).  IDE_FEATURE_MATRIX is derived from the
+# ── harness feature capabilities ──────────────────────────────────
+# HARNESS_CAPABILITY_NAMES defines the vocabulary of possible features (used by
+# Pydantic validators).  HARNESS_CAPABILITIES is derived from the
 # registry.  Both are mirrored in observal_cli/constants.py and
 # web/src/lib/ide-features.ts.
 
-IDE_FEATURES: list[str] = [
+HARNESS_CAPABILITY_NAMES: list[str] = [
     "skills",
-    "superpowers",
-    "hook_bridge",
+    "hooks",
     "mcp_servers",
-    "rules",
-    "steering_files",
-    "otlp_telemetry",
 ]
 
-IDE_FEATURE_MATRIX: dict[str, set[str]] = get_ide_feature_matrix()
+HARNESS_CAPABILITIES: dict[str, set[str]] = get_harness_capability_matrix()
 
 # ── MCP servers ─────────────────────────────────────────────
 VALID_MCP_CATEGORIES: list[str] = [
@@ -124,6 +120,12 @@ VALID_HOOK_SCOPES: list[str] = [
     "global",
 ]
 
+HOOK_TIMEOUT_CAPS: dict[str, int] = {
+    "blocking": 30,
+    "sync": 10,
+    "async": 60,
+}
+
 # ── Prompts ─────────────────────────────────────────────────
 VALID_PROMPT_CATEGORIES: list[str] = [
     "system-prompt",
@@ -154,8 +156,8 @@ VALID_SANDBOX_NETWORK_POLICIES: list[str] = [
 # ── Pydantic validator helpers ──────────────────────────────
 
 
-def _normalize_ide(value: str) -> str:
-    """Normalize underscore IDE names to hyphens (e.g. claude_code -> claude-code)."""
+def _normalize_harness(value: str) -> str:
+    """Normalize underscore harness names to hyphens (e.g. claude_code -> claude-code)."""
     return value.replace("_", "-")
 
 
@@ -188,14 +190,14 @@ def make_name_validator(field_name: str = "name", max_length: int = 64):
     return classmethod(_check)
 
 
-def make_ide_list_validator():
-    """Return a classmethod that validates and normalizes each IDE in a list."""
+def make_harness_list_validator():
+    """Return a classmethod that validates and normalizes each harness in a list."""
 
     def _check(cls, v: list[str]) -> list[str]:
-        normalized = [_normalize_ide(ide) for ide in v]
-        invalid = [ide for ide in normalized if ide not in VALID_IDES]
+        normalized = [_normalize_harness(harness) for harness in v]
+        invalid = [harness for harness in normalized if harness not in VALID_HARNESSES]
         if invalid:
-            raise ValueError(f"Invalid IDE(s): {', '.join(invalid)}. Valid options: {', '.join(VALID_IDES)}")
+            raise ValueError(f"Invalid harness(s): {', '.join(invalid)}. Valid options: {', '.join(VALID_HARNESSES)}")
         return normalized
 
     return classmethod(_check)

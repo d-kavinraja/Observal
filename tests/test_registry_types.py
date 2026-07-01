@@ -1,5 +1,6 @@
 # SPDX-FileCopyrightText: 2026 Hari Srinivasan <harisrini21@gmail.com>
 # SPDX-FileCopyrightText: 2026 Shaan Narendran <shaannaren06@gmail.com>
+# SPDX-FileCopyrightText: 2026 tsitu0 <tomsitu0102@gmail.com>
 # SPDX-License-Identifier: AGPL-3.0-only
 
 """Unit tests for the 6 new registry types: tool, skill, hook, prompt, sandbox, graphrag."""
@@ -56,7 +57,9 @@ def _listing_mock(model_cls, status=ListingStatus.pending, **extra):
     m.status = status
     m.rejection_reason = None
     m.submitted_by = uuid.uuid4()
-    m.supported_ides = ["cursor"]
+    m.supported_harnesses = ["cursor"]
+    m.slash_command = None
+    m.skill_md_content = None
     m.created_at = datetime.now(UTC)
     m.updated_at = datetime.now(UTC)
     for k, v in extra.items():
@@ -216,7 +219,7 @@ class TestSchemas:
             template="hi",
             variables=[],
             tags=[],
-            supported_ides=[],
+            supported_harnesses=[],
             status=ListingStatus.approved,
             rejection_reason=None,
             submitted_by=uuid.uuid4(),
@@ -279,6 +282,76 @@ class TestSkillRoutes:
         assert db.add.call_count == 2  # listing + version
 
     @pytest.mark.asyncio
+    async def test_registry_direct_uses_yaml_frontmatter_for_command(self):
+        from api.routes.skill import router
+        from models.skill import SkillListing, SkillVersion
+
+        app, db, user = _app_with(router)
+
+        def _refresh(obj):
+            obj.id = uuid.uuid4()
+            obj.created_at = datetime.now(UTC)
+            obj.updated_at = datetime.now(UTC)
+
+        db.refresh = AsyncMock(side_effect=_refresh)
+        db.execute = AsyncMock(return_value=_scalar_result(None))
+
+        _orig_init = SkillListing.__init__
+
+        def _patched_init(self, **kwargs):
+            kwargs.pop("archive_url", None)
+            _orig_init(self, **kwargs)
+
+        skill_md = '---\nname: s\ndescription: d\ncommand: "/review"\n---\n\nBody\n'
+        with patch.object(SkillListing, "__init__", _patched_init):
+            async with AsyncClient(transport=ASGITransport(app=app), base_url="http://test") as ac:
+                r = await ac.post(
+                    "/api/v1/skills/submit",
+                    json={
+                        "name": "s",
+                        "version": "1.0",
+                        "description": "d",
+                        "owner": "o",
+                        "task_type": "code-review",
+                        "delivery_mode": "registry_direct",
+                        "skill_md_content": skill_md,
+                    },
+                )
+
+        assert r.status_code == 200
+        version = next(call.args[0] for call in db.add.call_args_list if isinstance(call.args[0], SkillVersion))
+        assert version.slash_command == "review"
+
+    @pytest.mark.asyncio
+    async def test_draft_update_empty_slash_command_clears_even_with_existing_frontmatter_command(self):
+        from api.routes import skill as skill_routes
+        from schemas.skill import SkillUpdateRequest
+
+        user = _user()
+        db = _mock_db()
+        version = MagicMock()
+        version.skill_md_content = "---\nname: review\ndescription: d\ncommand: /review\n---\n"
+        version.slash_command = "review"
+        version.is_editing = False
+        version.editing_by = None
+        version.editing_since = None
+        listing = _listing_mock(object, status=ListingStatus.draft, latest_version=version)
+
+        with (
+            patch.object(skill_routes, "resolve_listing", AsyncMock(return_value=listing)),
+            patch.object(skill_routes, "get_effective_component_permission", return_value="owner"),
+            patch.object(skill_routes.SkillListingResponse, "model_validate", return_value=listing),
+        ):
+            await skill_routes.update_skill_draft(
+                listing_id=str(listing.id),
+                req=SkillUpdateRequest(slash_command=""),
+                db=db,
+                current_user=user,
+            )
+
+        assert version.slash_command is None
+
+    @pytest.mark.asyncio
     async def test_get_missing_returns_404(self):
         from api.routes.skill import router
 
@@ -289,16 +362,6 @@ class TestSkillRoutes:
         assert r.status_code == 404
 
     @pytest.mark.asyncio
-    async def test_delete_missing_returns_404(self):
-        from api.routes.skill import router
-
-        app, db, _ = _app_with(router)
-        db.execute = AsyncMock(return_value=_scalar_result(None))
-        async with AsyncClient(transport=ASGITransport(app=app), base_url="http://test") as ac:
-            r = await ac.delete(f"/api/v1/skills/{uuid.uuid4()}")
-        assert r.status_code == 404
-
-    @pytest.mark.asyncio
     async def test_install_approved_returns_config(self):
         from api.routes.skill import router
 
@@ -306,7 +369,7 @@ class TestSkillRoutes:
         listing = _listing_mock(None, status=ListingStatus.approved)
         db.execute = AsyncMock(return_value=_scalar_result(listing))
         async with AsyncClient(transport=ASGITransport(app=app), base_url="http://test") as ac:
-            r = await ac.post(f"/api/v1/skills/{listing.id}/install", json={"ide": "cursor"})
+            r = await ac.post(f"/api/v1/skills/{listing.id}/install", json={"harness": "cursor"})
         assert r.status_code == 200
         assert "config_snippet" in r.json()
 
@@ -352,16 +415,6 @@ class TestHookRoutes:
         assert r.status_code == 404
 
     @pytest.mark.asyncio
-    async def test_delete_missing_returns_404(self):
-        from api.routes.hook import router
-
-        app, db, _ = _app_with(router)
-        db.execute = AsyncMock(return_value=_scalar_result(None))
-        async with AsyncClient(transport=ASGITransport(app=app), base_url="http://test") as ac:
-            r = await ac.delete(f"/api/v1/hooks/{uuid.uuid4()}")
-        assert r.status_code == 404
-
-    @pytest.mark.asyncio
     async def test_install_approved_returns_config(self):
         from api.routes.hook import router
 
@@ -369,7 +422,7 @@ class TestHookRoutes:
         listing = _listing_mock(None, status=ListingStatus.approved)
         db.execute = AsyncMock(return_value=_scalar_result(listing))
         async with AsyncClient(transport=ASGITransport(app=app), base_url="http://test") as ac:
-            r = await ac.post(f"/api/v1/hooks/{listing.id}/install", json={"ide": "cursor"})
+            r = await ac.post(f"/api/v1/hooks/{listing.id}/install", json={"harness": "cursor"})
         assert r.status_code == 200
         assert "config_snippet" in r.json()
 
@@ -415,17 +468,7 @@ class TestPromptRoutes:
         assert r.status_code == 404
 
     @pytest.mark.asyncio
-    async def test_delete_missing_returns_404(self):
-        from api.routes.prompt import router
-
-        app, db, _ = _app_with(router)
-        db.execute = AsyncMock(return_value=_scalar_result(None))
-        async with AsyncClient(transport=ASGITransport(app=app), base_url="http://test") as ac:
-            r = await ac.delete(f"/api/v1/prompts/{uuid.uuid4()}")
-        assert r.status_code == 404
-
-    @pytest.mark.asyncio
-    async def test_install_approved_returns_config(self):
+    async def test_install_route_removed(self):
         from api.routes.prompt import router
 
         app, db, user = _app_with(router)
@@ -433,8 +476,7 @@ class TestPromptRoutes:
         db.execute = AsyncMock(return_value=_scalar_result(listing))
         async with AsyncClient(transport=ASGITransport(app=app), base_url="http://test") as ac:
             r = await ac.post(f"/api/v1/prompts/{listing.id}/install")
-        assert r.status_code == 200
-        assert "config_snippet" in r.json()
+        assert r.status_code == 404
 
     @pytest.mark.asyncio
     async def test_render_substitutes_variables(self):
@@ -505,26 +547,15 @@ class TestSandboxRoutes:
         assert r.status_code == 404
 
     @pytest.mark.asyncio
-    async def test_delete_missing_returns_404(self):
-        from api.routes.sandbox import router
-
-        app, db, _ = _app_with(router)
-        db.execute = AsyncMock(return_value=_scalar_result(None))
-        async with AsyncClient(transport=ASGITransport(app=app), base_url="http://test") as ac:
-            r = await ac.delete(f"/api/v1/sandboxes/{uuid.uuid4()}")
-        assert r.status_code == 404
-
-    @pytest.mark.asyncio
-    async def test_install_approved_returns_config(self):
+    async def test_install_route_removed(self):
         from api.routes.sandbox import router
 
         app, db, user = _app_with(router)
         listing = _listing_mock(None, status=ListingStatus.approved)
         db.execute = AsyncMock(return_value=_scalar_result(listing))
         async with AsyncClient(transport=ASGITransport(app=app), base_url="http://test") as ac:
-            r = await ac.post(f"/api/v1/sandboxes/{listing.id}/install", json={"ide": "cursor"})
-        assert r.status_code == 200
-        assert "config_snippet" in r.json()
+            r = await ac.post(f"/api/v1/sandboxes/{listing.id}/install", json={"harness": "cursor"})
+        assert r.status_code == 404
 
 
 # ═══════════════════════════════════════════════════════════
@@ -666,5 +697,5 @@ class TestCLICommands:
         from observal_cli.cmd_skill import skill_app
 
         names = self._get_command_names(skill_app)
-        for cmd in ("submit", "list", "show", "install", "delete"):
+        for cmd in ("submit", "list", "show", "install"):
             assert cmd in names, f"skill missing '{cmd}' subcommand"

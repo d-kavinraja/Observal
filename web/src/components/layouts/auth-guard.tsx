@@ -2,14 +2,13 @@
 // SPDX-FileCopyrightText: 2026 Kaushik Kumar <kaushikrjpm10@gmail.com>
 // SPDX-License-Identifier: AGPL-3.0-only
 
-"use client";
 import { useAuthGuard, useOptionalAuth } from "@/hooks/use-auth";
 
 export function AuthGuard({ children }: { children: React.ReactNode }) {
   const { ready } = useAuthGuard();
-  // Don't render anything until auth state is confirmed to prevent flicker
+  // Block rendering until auth state is confirmed to prevent flicker
   // of protected content before redirect
-  if (!ready) return null;
+  if (!ready) return <div className="flex h-screen w-full items-center justify-center" />;
   return <>{children}</>;
 }
 

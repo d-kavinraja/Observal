@@ -41,7 +41,7 @@ class TopAgentItem(BaseModel):
 
 
 class LeaderboardItem(TopAgentItem):
-    """Same as TopAgentItem — used by the leaderboard endpoint."""
+    """Same as TopAgentItem - used by the leaderboard endpoint."""
 
     created_by_email: str = ""
     created_by_username: str | None = None
@@ -92,19 +92,19 @@ class TokenStats(BaseModel):
     over_time: list[TokenTimePoint]
 
 
-# --- IDE usage ---
+# --- harness usage ---
 
 
-class IdeBreakdown(BaseModel):
-    ide: str
+class HarnessBreakdown(BaseModel):
+    harness: str
     traces: int
     avg_latency_ms: float
     error_count: int
     error_rate: float
 
 
-class IdeUsage(BaseModel):
-    ides: list[IdeBreakdown]
+class HarnessUsage(BaseModel):
+    harnesses: list[HarnessBreakdown]
 
 
 # --- Sandbox metrics ---
@@ -168,46 +168,6 @@ class GraphRagStats(BaseModel):
     recent_queries: list[GraphRagQuery]
 
 
-# --- RAGAS evaluation ---
-
-
-class RagasDimensionScore(BaseModel):
-    avg: float | None
-    count: int
-
-
-class RagasScores(BaseModel):
-    faithfulness: RagasDimensionScore
-    answer_relevancy: RagasDimensionScore
-    context_precision: RagasDimensionScore
-    context_recall: RagasDimensionScore
-
-
-class RagasSpanResult(BaseModel):
-    span_id: str
-    trace_id: str
-    faithfulness: float
-    faithfulness_reason: str
-    answer_relevancy: float
-    answer_relevancy_reason: str
-    context_precision: float
-    context_precision_reason: str
-    context_recall: float
-    context_recall_reason: str
-
-
-class RagasEvalResponse(BaseModel):
-    spans_evaluated: int
-    scores: list[RagasSpanResult]
-    averages: RagasScores
-
-
-class RagasEvalRequest(BaseModel):
-    graphrag_id: str
-    limit: int = 20
-    ground_truths: dict[str, str] | None = None
-
-
 # --- Latency heatmap ---
 
 
@@ -226,6 +186,6 @@ class UnannotatedTrace(BaseModel):
     trace_id: str
     name: str | None
     session_id: str | None
-    ide: str | None
+    harness: str | None
     trace_type: str | None
     start_time: str

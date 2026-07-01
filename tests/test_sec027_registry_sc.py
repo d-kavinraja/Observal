@@ -62,23 +62,23 @@ def _agent_mock(status=AgentStatus.pending, created_by=None, **extra):
     m.model_name = extra.get("model_name", "claude-sonnet-4")
     m.model_config_json = {}
     m.external_mcps = []
-    m.supported_ides = []
+    m.supported_harnesses = []
     m.status = status
     m.rejection_reason = None
     m.download_count = 0
     m.unique_users = 0
-    m.visibility = "private"
     m.owner_org_id = None
     m.git_url = None
     m.created_by = created_by or uuid.uuid4()
     m.created_at = datetime.now(UTC)
+    m.deleted_at = None
     m.updated_at = datetime.now(UTC)
     m.components = extra.get("components", [])
     m.latest_version = MagicMock()
     m.latest_version.external_mcps = []
     m.latest_version.prompt = m.prompt
-    m.latest_version.required_ide_features = []
-    m.latest_version.inferred_supported_ides = []
+    m.latest_version.required_capabilities = []
+    m.latest_version.inferred_supported_harnesses = []
     col_keys = [
         "id",
         "name",
@@ -90,8 +90,7 @@ def _agent_mock(status=AgentStatus.pending, created_by=None, **extra):
         "model_name",
         "model_config_json",
         "external_mcps",
-        "supported_ides",
-        "visibility",
+        "supported_harnesses",
         "owner_org_id",
         "status",
         "rejection_reason",
@@ -99,6 +98,7 @@ def _agent_mock(status=AgentStatus.pending, created_by=None, **extra):
         "unique_users",
         "created_by",
         "created_at",
+        "deleted_at",
         "updated_at",
     ]
     cols = []
@@ -119,7 +119,7 @@ def _empty_result():
 
 
 def _install_body() -> dict:
-    return {"ide": "cursor", "env_values": {}, "options": {}, "platform": ""}
+    return {"harness": "cursor", "env_values": {}, "options": {}, "platform": ""}
 
 
 # ═══════════════════════════════════════════════════════════
@@ -131,11 +131,11 @@ class TestInstallAgentStatusGating:
     """SEC-027: pending/draft agents should not be installable unless approved."""
 
     @pytest.mark.asyncio
-    @patch("api.routes.agent._load_agent")
-    @patch("api.routes.agent.settings")
+    @patch("api.routes.agent.install._load_agent")
+    @patch("api.routes.agent.install._ds")
     async def test_pending_agent_returns_404_for_non_owner(self, mock_settings, mock_load):
         """Non-owner cannot install a pending agent when ALLOW_DRAFT_INSTALL=False."""
-        mock_settings.ALLOW_DRAFT_INSTALL = False
+        mock_settings.get_sync_bool.return_value = False
 
         owner_id = uuid.uuid4()
         user = _user()  # different user
@@ -150,11 +150,11 @@ class TestInstallAgentStatusGating:
         assert r.status_code == 404
 
     @pytest.mark.asyncio
-    @patch("api.routes.agent._load_agent")
-    @patch("api.routes.agent.settings")
+    @patch("api.routes.agent.install._load_agent")
+    @patch("api.routes.agent.install._ds")
     async def test_pending_agent_returns_404_for_owner_when_flag_off(self, mock_settings, mock_load):
         """Owner also cannot install a pending agent when ALLOW_DRAFT_INSTALL=False."""
-        mock_settings.ALLOW_DRAFT_INSTALL = False
+        mock_settings.get_sync_bool.return_value = False
 
         user = _user()
         agent = _agent_mock(status=AgentStatus.pending, created_by=user.id)
@@ -169,12 +169,11 @@ class TestInstallAgentStatusGating:
 
     @pytest.mark.asyncio
     @patch("services.download_tracker.record_agent_download", new_callable=AsyncMock)
-    @patch("api.routes.agent._load_agent")
-    @patch("api.routes.agent.settings")
+    @patch("api.routes.agent.install._load_agent")
+    @patch("api.routes.agent.install._ds")
     async def test_pending_agent_owner_can_install_when_flag_on(self, mock_settings, mock_load, _mock_download):
         """When ALLOW_DRAFT_INSTALL=True, the owner may install their own pending agent."""
-        mock_settings.ALLOW_DRAFT_INSTALL = True
-        mock_settings.ALLOW_INTERNAL_GIT_URLS = False
+        mock_settings.get_sync_bool.return_value = True
 
         user = _user()
         agent = _agent_mock(status=AgentStatus.pending, created_by=user.id)
@@ -193,12 +192,12 @@ class TestInstallAgentStatusGating:
         assert r.status_code != 404
 
     @pytest.mark.asyncio
-    @patch("api.routes.agent._load_agent")
-    @patch("api.routes.agent.settings")
-    async def test_approved_agent_always_installable(self, mock_settings, mock_load):
+    @patch("api.routes.agent.install._load_agent")
+    @patch("api.routes.agent.install._ds")
+    @patch("services.download_tracker.record_agent_download", new_callable=AsyncMock)
+    async def test_approved_agent_always_installable(self, mock_download, mock_settings, mock_load):
         """Approved agents install regardless of ALLOW_DRAFT_INSTALL flag."""
-        mock_settings.ALLOW_DRAFT_INSTALL = False
-        mock_settings.ALLOW_INTERNAL_GIT_URLS = False
+        mock_settings.get_sync_bool.return_value = False
 
         user = _user()
         agent = _agent_mock(status=AgentStatus.approved, created_by=uuid.uuid4())
@@ -281,7 +280,7 @@ class TestCreateAgentMcpValidation:
 
     @pytest.mark.asyncio
     @patch("services.agent_snapshot.build_yaml_snapshot", new=AsyncMock(return_value="snapshot"))
-    @patch("api.routes.agent._load_agent")
+    @patch("api.routes.agent.install._load_agent")
     async def test_shell_metachar_in_external_mcp_returns_422(self, mock_load):
         """Creating an agent with a shell metachar in external MCP command returns 422."""
         user = _user()

@@ -8,20 +8,19 @@ Observal runs two DBs with very different jobs.
 | DB | Role | Access pattern | Schema source of truth |
 | --- | --- | --- | --- |
 | Postgres 16 | Registry, users, config | Relational, transactional | Alembic migrations in `observal-server/alembic/versions/` |
-| ClickHouse 26.3 | Telemetry (traces, spans, scores) | Columnar, time-series, high-write | Auto-created by the server at startup |
+| ClickHouse 26.5 | Telemetry and audit event storage | Columnar, time-series, high-write | Versioned SQL migrations in `observal-server/clickhouse/migrations/` |
 
 ## Postgres
 
 ### What's in it
 
 * `users`, `roles`, RBAC bindings
-* `mcps`, `agents`, `skills`, `hooks`, `prompts`, `sandboxes` — registry metadata
-* `reviews` — submission review state
+* `mcps`, `agents`, `skills`, `hooks`, `prompts`, `sandboxes`: registry metadata
+* `reviews`: submission review state
 * `feedback`, `ratings`
 * `alerts`, `alert_history`
-* `scorecards`, `eval_runs`, `scoring_dimensions`, `penalties`, `dimension_weights`
 * `api_keys`
-* Enterprise: `audit_log`, `scim_users`, `scim_groups` (when enabled)
+* Enterprise: `audit_log` and related enterprise-only tables when enabled
 
 ### Migrations
 
@@ -54,40 +53,55 @@ The `-v` deletes all named volumes. Use only in dev.
 
 ### What's in it
 
-Four user-facing tables, all `ReplacingMergeTree` with soft deletes via `is_deleted` + `event_ts`:
+Core tables:
 
 | Table | Contents |
 | --- | --- |
-| `traces` | Trace headers — trace_id, parent_trace_id, trace_type, agent_id, session_id, mcp_id, start/end time, input, output, metadata, tags |
-| `spans` | Individual span records — span_id, trace_id, parent_span_id, type, name, method, input, output, error, latency_ms, status, token counts, cost, retry count |
-| `scores` | Eval results — score_id, trace_id, span_id, dimension name, numeric / string value, comment, metadata |
-| `audit_log` | Enterprise audit events (enterprise-only) |
+| `session_events` | Raw and parsed harness JSONL lines, token fields, tool fields, and session metadata |
+| `session_stats_agg` | Pre-aggregated session list and summary metrics from `session_events` |
+| `layer_snapshots` | Harness config snapshots used by version-aware insights |
+| `audit_log` | Enterprise audit events |
+| `security_events` | Security events for login, auth, and admin activity |
+| `webhook_deliveries` | Alert webhook delivery attempts and status |
 
-Plus two legacy tables retained for backward compat: `mcp_tool_calls`, `agent_interactions`.
+### Deduplication and aggregates
 
-### Deduplication
+`session_events` and `layer_snapshots` use `ReplacingMergeTree` for idempotent ingest. `session_stats_agg` uses `AggregatingMergeTree` and is maintained by a materialized view.
 
-Because everything is `ReplacingMergeTree`, queries should use `FINAL` to force dedup:
-
-```sql
-SELECT * FROM traces FINAL WHERE agent_id = '...'
-```
-
-The API does this for you in its query surface. If you're querying ClickHouse directly (e.g. from Grafana), remember `FINAL`.
+The API query layer handles the required `FINAL` or aggregate reads. If you query ClickHouse directly, match the table engine instead of assuming every table reads the same way.
 
 ### Retention (TTL)
 
 Controlled by `DATA_RETENTION_DAYS`:
 
-* Default `90` — rows older than 90 days are TTL'd out.
-* `0` — retention disabled (disk grows without bound).
+* Default `90`: rows older than 90 days are TTL'd out.
+* `0`: retention disabled (disk grows without bound).
 * The server enforces a minimum of `7` on any non-zero value.
 
 TTL runs asynchronously. Disk space is reclaimed on the next merge; don't expect instant free-up.
 
-### Auto-creation at startup
+### Schema migrations
 
-The server runs `CREATE TABLE IF NOT EXISTS` for every telemetry table on startup. If ClickHouse is unavailable when the API boots, the API still starts — but telemetry ingestion and dashboard queries silently fail until ClickHouse is back.
+ClickHouse schema changes are managed separately from Alembic. Alembic is only for Postgres.
+
+ClickHouse migration files live in:
+
+```bash
+observal-server/clickhouse/migrations/*.sql
+```
+
+The init container runs ClickHouse migrations after Alembic and before the API starts. The migration runner records applied files in `clickhouse_schema_migrations`.
+
+On existing installations that predate versioned ClickHouse migrations, the runner detects the existing baseline tables and stamps `001_baseline.sql` as applied instead of replaying the whole baseline.
+
+For local checks outside Docker, run the same runner from the server package:
+
+```bash
+cd observal-server
+python -m services.clickhouse.migrations
+```
+
+Do not put ClickHouse DDL in startup code. Add a new migration file instead.
 
 ### Capacity planning
 

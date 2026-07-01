@@ -3,12 +3,11 @@
 // SPDX-FileCopyrightText: 2026 Shaan Narendran <shaannaren06@gmail.com>
 // SPDX-License-Identifier: AGPL-3.0-only
 
-"use client";
 
-import Link from "next/link";
+import { Link } from "@tanstack/react-router";
 import { ArrowDownToLine, Puzzle, Star } from "lucide-react";
 import { Badge } from "@/components/ui/badge";
-import { IdeBadges } from "@/components/registry/ide-badges";
+import { HarnessBadges } from "@/components/registry/harness-badges";
 import { compactNumber } from "@/lib/utils";
 
 interface AgentCardProps {
@@ -23,8 +22,8 @@ interface AgentCardProps {
   version?: string;
   component_count?: number;
   status?: string;
-  supported_ides?: string[];
-  inferred_supported_ides?: string[];
+  supported_harnesses?: string[];
+  inferred_supported_harnesses?: string[];
   className?: string;
 }
 
@@ -38,13 +37,13 @@ export function AgentCard({
   score,
   version,
   component_count,
-  supported_ides,
-  inferred_supported_ides,
+  supported_harnesses,
+  inferred_supported_harnesses,
   className,
 }: AgentCardProps) {
   return (
     <Link
-      href={`/agents/${id}`}
+      to="/agents/$agentId" params={{ agentId: id }}
       className={[
         "group block border border-border bg-card p-4 rounded-md",
         "transition-all duration-200 ease-out",
@@ -97,9 +96,9 @@ export function AgentCard({
         )}
       </div>
 
-      <IdeBadges
-        supportedIdes={supported_ides}
-        inferredSupportedIdes={inferred_supported_ides}
+      <HarnessBadges
+        supportedHarnesses={supported_harnesses}
+        inferredSupportedHarnesses={inferred_supported_harnesses}
         max={3}
         className="mt-2"
       />

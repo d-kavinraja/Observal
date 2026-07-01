@@ -5,12 +5,12 @@
 
 # Docker Compose setup
 
-Step-by-step bring-up of the Observal stack. End state: ten healthy services, API responding at `http://localhost:8000/health`, web UI at `http://localhost:3000`.
+Step-by-step bring-up of the Observal stack. End state: the core services are healthy, API responding at `http://localhost/health`, web UI at `http://localhost`. Prometheus and Grafana are optional.
 
 ## 1. Clone and configure
 
 ```bash
-git clone https://github.com/BlazeUp-AI/Observal.git
+git clone https://github.com/Observal/Observal.git
 cd Observal
 cp .env.example .env
 ```
@@ -18,12 +18,26 @@ cp .env.example .env
 The `.env.example` ships with working defaults for every setting, including demo account credentials. You do not need to edit it for local development.
 
 > [!NOTE]
-> You need Docker Engine ≥ 24.0 with Compose v2 (`docker compose`, not `docker-compose`). Homebrew's Docker formula is outdated — install [Docker Desktop](https://docs.docker.com/get-docker/) or use your distro's upstream packages. Verify with `docker version` and `docker compose version`.
+> You need Docker Engine ≥ 24.0 with Compose v2 (`docker compose`, not `docker-compose`). Homebrew's Docker formula is outdated. Install [Docker Desktop](https://docs.docker.com/get-docker/) or use your distro's upstream packages. Verify with `docker version` and `docker compose version`.
 
 ## 2. Start the stack
 
+Core stack only:
+
 ```bash
 docker compose -f docker/docker-compose.yml up --build -d
+```
+
+With Prometheus only:
+
+```bash
+docker compose -f docker/docker-compose.yml -f docker/docker-compose.observability.yml up --build -d
+```
+
+With Prometheus and Grafana:
+
+```bash
+COMPOSE_PROFILES=grafana docker compose -f docker/docker-compose.yml -f docker/docker-compose.observability.yml up --build -d
 ```
 
 First build takes a few minutes (pulls images, builds `observal-api` and `observal-web`). Subsequent starts are fast.
@@ -34,22 +48,22 @@ First build takes a few minutes (pulls images, builds `observal-api` and `observ
 docker compose -f docker/docker-compose.yml ps
 ```
 
-Every service should show `healthy` or `running`. The API waits for Postgres, ClickHouse, and Redis to pass health checks before starting — expect 15–30 seconds on first boot.
+Every service should show `healthy` or `running`. The API waits for Postgres, ClickHouse, and Redis to pass health checks before starting. Expect 15–30 seconds on first boot.
 
-Hit the API health endpoint directly:
+Hit the health endpoint:
 
 ```bash
-curl http://localhost:8000/health
+curl http://localhost/health
 # {"status":"ok"}
 ```
 
-## 4. Configure a reverse proxy (production only)
+## 4. Configure TLS (production only)
 
-For local dev, `http://localhost:3000` and `http://localhost:8000` are fine. For production, see [Requirements → TLS / HTTPS](requirements.md#tls--https).
+For local dev, `http://localhost` is fine. For production, put a TLS-terminating reverse proxy in front of the nginx LB. See [Requirements → TLS / HTTPS](requirements.md#tls--https).
 
 ## 5. Bootstrap the first user
 
-### Option A — demo accounts (fastest for trying it out)
+### Option A - demo accounts (fastest for trying it out)
 
 `.env.example` seeds four demo accounts on first startup:
 
@@ -63,20 +77,20 @@ For local dev, `http://localhost:3000` and `http://localhost:8000` are fine. For
 Log in with the CLI:
 
 ```bash
-curl -fsSL https://raw.githubusercontent.com/BlazeUp-AI/Observal/main/install.sh | bash   # if you haven't already
+curl -fsSL https://raw.githubusercontent.com/Observal/Observal/main/install.sh | bash   # if you haven't already
 observal auth login              # Email: super@demo.example, Password: super-changeme
 ```
 
 **Remove demo accounts before real deployment.** Unset the `DEMO_*` env vars in `.env` and restart. Already-seeded accounts stay until you delete them manually (`observal admin delete-user <email>`).
 
-### Option B — fresh bootstrap (recommended for production)
+### Option B - fresh bootstrap (recommended for production)
 
 Remove `DEMO_*` from `.env` and start the stack. Run:
 
 ```bash
 observal auth login
-# Server URL: http://localhost:8000
-# No users detected — bootstrapping admin account.
+# Server URL: http://localhost
+# No users detected - bootstrapping admin account.
 # Email: alice@your-company.com
 # Password: **************
 ```
@@ -89,18 +103,17 @@ The CLI detects that no users exist and interactively creates the first admin. T
 observal auth whoami
 observal auth status
 
-observal ops overview              # summary dashboard
-observal registry mcp list         # empty list — you haven't added anything yet
+observal registry mcp list         # empty list - you haven't added anything yet
 ```
 
 ## 7. Stop, restart, rebuild
 
 ```bash
-# Stop
-docker compose -f docker/docker-compose.yml down
+# Stop core and any optional monitoring containers
+make down
 
-# Stop + DELETE all data (wipes volumes — be careful)
-docker compose -f docker/docker-compose.yml down -v
+# Stop and delete all data, including optional monitoring volumes
+docker compose -f docker/docker-compose.yml -f docker/docker-compose.observability.yml --profile grafana down -v
 
 # Restart one service
 docker compose -f docker/docker-compose.yml restart observal-api
@@ -112,8 +125,12 @@ docker compose -f docker/docker-compose.yml up --build -d observal-api
 Makefile shortcuts from the repo root:
 
 ```bash
-make logs       # tail all service logs
-make rebuild    # rebuild and restart everything
+make logs                  # tail core service logs
+make rebuild               # rebuild and restart core services
+make up-prometheus         # start core services with Prometheus
+make up-observability      # start core services with Prometheus and Grafana
+make rebuild-prometheus    # rebuild core services with Prometheus
+make rebuild-observability # rebuild core services with Prometheus and Grafana
 ```
 
 ## 8. Logs
@@ -136,4 +153,4 @@ Every host port is configurable. See [Ports and volumes](ports-and-volumes.md) f
 
 ## Next
 
-→ [Configuration](configuration.md) — which env vars to change for production.
+→ [Configuration](configuration.md): which env vars to change for production.

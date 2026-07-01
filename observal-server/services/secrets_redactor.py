@@ -18,8 +18,10 @@ BEFORE storage in ClickHouse.  Designed to avoid over-stripping:
 import re
 from typing import Any
 
+from loguru import logger as optic
+
 # ---------------------------------------------------------------------------
-# Known API key prefixes — near-zero false-positive rate.
+# Known API key prefixes - near-zero false-positive rate.
 # These match actual key VALUES, not variable names.
 # ---------------------------------------------------------------------------
 
@@ -134,7 +136,7 @@ _RE_AUTH_HEADER = re.compile(
 # Generic high-entropy hex/base64 strings that look like secrets.
 # Only matches 32+ char strings that contain mixed case/digits,
 # and only when preceded by an assignment operator (=, :).
-# This is the most aggressive pattern — kept last and narrow.
+# This is the most aggressive pattern - kept last and narrow.
 # ---------------------------------------------------------------------------
 
 _RE_LONG_HEX = re.compile(
@@ -147,6 +149,35 @@ _RE_LONG_BASE64 = re.compile(
     r"(?<=[=:\s\"'])"
     r"([A-Za-z0-9+/]{40,}={0,2})"
     r"(?=[\"',;\s}\])]|$)"
+)
+
+# Combined alternation of all known key patterns for single-pass matching.
+# A single DFA scan is dramatically faster than 15 sequential subn() calls.
+_COMBINED_KEY_PATTERN = re.compile("|".join(f"(?:{p.pattern})" for p in _KNOWN_KEY_PATTERNS))
+
+# Quick substring prefixes for short-circuit: if none are present in the text,
+# no known API key can exist, so skip the expensive combined regex entirely.
+_QUICK_PREFIXES = (
+    "sk-",
+    "sk_",
+    "pk_",
+    "rk_",
+    "ghp_",
+    "gho_",
+    "ghs_",
+    "ghu_",
+    "glpat-",
+    "xox",
+    "AKIA",
+    "npm_",
+    "pypi-",
+    "SG.",
+    "hf_",
+    "vercel_",
+    "sbp_",
+    "AGE-SECRET",
+    "AIza",
+    "key-",
 )
 
 REDACTED = "**REDACTED**"
@@ -164,23 +195,24 @@ def get_and_reset_redaction_count() -> int:
 def redact_secrets(text: str) -> str:
     """Redact secrets from a string while preserving non-secret content.
 
-    Safe to call on any string — returns the original if nothing matches.
+    Safe to call on any string - returns the original if nothing matches.
     Idempotent: calling twice produces the same result.
     """
+    optic.trace("redacting secrets from {} chars of text", len(text) if text else 0)
     if not text or len(text) < 8:
         return text
 
-    # Already redacted — skip
+    # Already redacted - skip
     if text == REDACTED:
         return text
 
     # 1. PEM private keys (replace entire block)
     text = _RE_PRIVATE_KEY.sub(REDACTED, text)
 
-    # 2. Known API key prefixes (highest confidence — always redact)
+    # 2. Known API key prefixes (single-pass alternation with short-circuit)
     global _redaction_count
-    for pat in _KNOWN_KEY_PATTERNS:
-        text, n = pat.subn(REDACTED, text)
+    if any(prefix in text for prefix in _QUICK_PREFIXES):
+        text, n = _COMBINED_KEY_PATTERN.subn(REDACTED, text)
         _redaction_count += n
 
     # 3. JWT tokens
@@ -189,16 +221,17 @@ def redact_secrets(text: str) -> str:
     # 4. Key=value assignments with secret-sounding key names
     #    Replace only the VALUE, keep the key name
     def _replace_kv(m: re.Match) -> str:
+        optic.trace("redacted a secret match")
         # Groups: 1=double-quoted, 2=single-quoted, 3=unquoted
         val = m.group(1) or m.group(2) or m.group(3)
         return m.group(0).replace(val, REDACTED) if val else m.group(0)
 
     text = _RE_KEY_VALUE.sub(_replace_kv, text)
 
-    # 5. Connection strings — redact password only
+    # 5. Connection strings - redact password only
     text = _RE_CONN_STRING.sub(r"\1" + REDACTED + r"\3", text)
 
-    # 6. Auth headers — redact token only
+    # 6. Auth headers - redact token only
     text = _RE_AUTH_HEADER.sub(r"\1" + REDACTED, text)
 
     return text
@@ -206,6 +239,7 @@ def redact_secrets(text: str) -> str:
 
 def _redact_value(value: Any) -> Any:
     """Recursively redact all string values in a structured value."""
+    optic.trace("redacting value field")
     if isinstance(value, str):
         return redact_secrets(value)
     if isinstance(value, dict):
@@ -219,6 +253,7 @@ def _redact_value(value: Any) -> Any:
 
 def _redact_matching_fields(value: Any, fields: set[str]) -> Any:
     """Recurse through containers looking for dict keys selected by fields."""
+    optic.trace("redacting {} specified fields", len(fields))
     if isinstance(value, dict):
         return redact_dict(value, fields)
     if isinstance(value, list):
@@ -234,8 +269,9 @@ def redact_dict(data: dict, fields: set[str] | None = None) -> dict:
     If ``fields`` is None, redacts ALL string values recursively.
     If ``fields`` is provided, redacts complete values under those keys,
     including nested dicts/lists.
-    Does NOT mutate the original — returns a new dict.
+    Does NOT mutate the original - returns a new dict.
     """
+    optic.trace("redacting fields from data structure")
     out = {}
     for key, value in data.items():
         if fields is None or key in fields:

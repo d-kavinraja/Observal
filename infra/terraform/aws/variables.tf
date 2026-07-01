@@ -65,18 +65,48 @@ variable "route53_zone_id" {
   default     = ""
 }
 
+variable "enable_tls" {
+  description = "Enable TLS via ACM. Requires a publicly-resolvable Route53 zone for DNS validation. Set false for private zones."
+  type        = bool
+  default     = true
+}
+
+# ── Sizing preset ─────────────────────────────────────────────────────────
+# Pick a preset to configure all resource sizes at once. Individual resource
+# variables (api_cpu, db_instance_class, etc.) are IGNORED when sizing != "custom".
+#
+# IMPORTANT: Presets and individual vars are mutually exclusive.
+# When sizing = "small|medium|large", individual resource variables have no effect.
+# Set sizing = "custom" to control each resource variable independently.
+#
+# Presets:
+#   small  (~$150/mo) — 1× api, 1× web, 1× worker, t3.medium data, db.t4g.micro
+#   medium (~$255/mo) — 2× api, 2× web, 1× worker, t3.large data, db.t4g.small
+#   large  (~$600/mo) — 3× api, 3× web, 2× worker, r6i.xlarge data, db.r6g.large
+
+variable "sizing" {
+  description = "Resource sizing preset. Set 'custom' to use individual resource variables instead."
+  type        = string
+  default     = "medium"
+
+  validation {
+    condition     = contains(["small", "medium", "large", "custom"], var.sizing)
+    error_message = "sizing must be 'small', 'medium', 'large', or 'custom'."
+  }
+}
+
 # ── ECS Fargate (api / web / worker / init) ────────────────────────────────
 
 variable "image_repo_api" {
   description = "Container image repository for api + worker + init (they share an image)."
   type        = string
-  default     = "ghcr.io/blazeup-ai/observal-api"
+  default     = "ghcr.io/observal/observal-api"
 }
 
 variable "image_repo_web" {
   description = "Container image repository for the Next.js web frontend."
   type        = string
-  default     = "ghcr.io/blazeup-ai/observal-web"
+  default     = "ghcr.io/observal/observal-web"
 }
 
 variable "image_tag" {
@@ -187,7 +217,7 @@ variable "run_init_on_apply" {
   default     = true
 }
 
-# ── Data tier (ClickHouse + Grafana + Prometheus on EC2) ───────────────────
+# ── Data tier (ClickHouse plus optional observability on EC2) ───────────────
 
 variable "clickhouse_mode" {
   description = "Where ClickHouse lives. 'self_hosted' = EC2 + EBS managed by this module. 'cloud' = ClickHouse Cloud, supply clickhouse_cloud_url + clickhouse_cloud_password."
@@ -206,12 +236,6 @@ variable "clickhouse_cloud_url" {
   sensitive   = true
 }
 
-variable "clickhouse_cloud_user" {
-  description = "ClickHouse Cloud username. Required when clickhouse_mode = 'cloud'."
-  type        = string
-  default     = "default"
-}
-
 variable "clickhouse_cloud_password" {
   description = "ClickHouse Cloud password. Required when clickhouse_mode = 'cloud'."
   type        = string
@@ -220,7 +244,7 @@ variable "clickhouse_cloud_password" {
 }
 
 variable "data_instance_type" {
-  description = "EC2 instance type for the ClickHouse + Grafana + Prometheus host. 8 GB RAM is the floor for light use."
+  description = "EC2 instance type for the ClickHouse data host. 8 GB RAM is the floor for light use."
   type        = string
   default     = "t3.large"
 }
@@ -267,20 +291,15 @@ variable "alb_ingress_cidrs" {
 
 # ── Application config ─────────────────────────────────────────────────────
 
-variable "deployment_mode" {
-  description = "Observal deployment mode: 'local' (self-registration) or 'enterprise' (SSO-only)."
+variable "observability_stack" {
+  description = "Bundled observability stack to deploy: none, prometheus, or grafana. grafana includes prometheus."
   type        = string
-  default     = "enterprise"
-  validation {
-    condition     = contains(["local", "enterprise"], var.deployment_mode)
-    error_message = "deployment_mode must be 'local' or 'enterprise'."
-  }
-}
+  default     = "none"
 
-variable "data_retention_days" {
-  description = "ClickHouse data retention in days. 0 disables TTL."
-  type        = number
-  default     = 90
+  validation {
+    condition     = contains(["none", "prometheus", "grafana"], var.observability_stack)
+    error_message = "observability_stack must be one of: none, prometheus, grafana."
+  }
 }
 
 variable "log_retention_days" {
@@ -320,3 +339,143 @@ variable "enable_public_ops_paths" {
   type        = bool
   default     = false
 }
+
+# ── License / Edition ──────────────────────────────────────────────────────
+
+variable "observal_license_key" {
+  description = "Observal Enterprise license key. If set, enterprise features are enabled at runtime. Leave empty for community edition."
+  type        = string
+  default     = ""
+  sensitive   = true
+}
+
+# ── Demo account seeding (optional, first-deploy only) ────────────────────────
+
+variable "demo_super_admin_email" {
+  description = "Email for the demo super-admin account. Leave empty to skip all demo seeding."
+  type        = string
+  default     = ""
+}
+
+variable "demo_super_admin_password" {
+  description = "Password for the demo super-admin account."
+  type        = string
+  default     = ""
+  sensitive   = true
+}
+
+variable "demo_admin_email" {
+  description = "Email for the demo admin account."
+  type        = string
+  default     = ""
+}
+
+variable "demo_admin_password" {
+  description = "Password for the demo admin account."
+  type        = string
+  default     = ""
+  sensitive   = true
+}
+
+variable "demo_reviewer_email" {
+  description = "Email for the demo reviewer account."
+  type        = string
+  default     = ""
+}
+
+variable "demo_reviewer_password" {
+  description = "Password for the demo reviewer account."
+  type        = string
+  default     = ""
+  sensitive   = true
+}
+
+variable "demo_user_email" {
+  description = "Email for the demo user account."
+  type        = string
+  default     = ""
+}
+
+variable "demo_user_password" {
+  description = "Password for the demo user account."
+  type        = string
+  default     = ""
+  sensitive   = true
+}
+
+# ── Bring-your-own VPC (optional) ─────────────────────────────────────────────
+# Set these to deploy into an existing VPC instead of creating a new one.
+# When vpc_id is set, Terraform skips creating VPC, subnets, IGW, NAT, and
+# route tables. You must provide at least 2 public and 2 private subnet IDs.
+
+variable "vpc_id" {
+  description = "ID of an existing VPC to reuse. Leave empty to create a new VPC."
+  type        = string
+  default     = null
+
+  validation {
+    condition     = var.vpc_id == null || can(regex("^vpc-", var.vpc_id))
+    error_message = "VPC ID must start with 'vpc-' if provided."
+  }
+}
+
+variable "private_subnet_ids" {
+  description = "List of private subnet IDs (required when using existing VPC). At least 2, in different AZs."
+  type        = list(string)
+  default     = null
+
+  validation {
+    condition     = var.private_subnet_ids == null || length(coalesce(var.private_subnet_ids, [])) >= 2
+    error_message = "At least 2 private_subnet_ids are required when using an existing VPC."
+  }
+}
+
+variable "public_subnet_ids" {
+  description = "List of public subnet IDs (required when using existing VPC). At least 2, in different AZs."
+  type        = list(string)
+  default     = null
+
+  validation {
+    condition     = var.public_subnet_ids == null || length(coalesce(var.public_subnet_ids, [])) >= 2
+    error_message = "At least 2 public_subnet_ids are required when using an existing VPC."
+  }
+}
+
+# ── Bring-your-own Security Groups (optional) ────────────────────────────────
+# Advanced: supply pre-created SG IDs to skip security group creation.
+# The ALB SG must allow inbound 80/443 from your desired CIDRs.
+# The ECS SG must allow inbound 8000/3000 from the ALB SG.
+
+variable "alb_security_group_id" {
+  description = "Existing ALB security group ID. Leave empty to create one."
+  type        = string
+  default     = null
+
+  validation {
+    condition     = var.alb_security_group_id == null || can(regex("^sg-", var.alb_security_group_id))
+    error_message = "alb_security_group_id must start with 'sg-' if provided."
+  }
+}
+
+variable "ecs_security_group_id" {
+  description = "Existing ECS tasks security group ID. Leave empty to create one."
+  type        = string
+  default     = null
+
+  validation {
+    condition     = var.ecs_security_group_id == null || can(regex("^sg-", var.ecs_security_group_id))
+    error_message = "ecs_security_group_id must start with 'sg-' if provided."
+  }
+}
+
+variable "alb_scheme" {
+  description = "Scheme for the ALB: 'internet-facing' or 'internal'."
+  type        = string
+  default     = "internet-facing"
+
+  validation {
+    condition     = contains(["internet-facing", "internal"], var.alb_scheme)
+    error_message = "alb_scheme must be 'internet-facing' or 'internal'."
+  }
+}
+

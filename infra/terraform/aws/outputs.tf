@@ -27,7 +27,7 @@ output "ecs_service_names" {
 
 output "init_run_task_command" {
   description = "Manual command to re-run the migrations/seed task."
-  value       = "aws ecs run-task --region ${var.region} --cluster ${aws_ecs_cluster.main.name} --launch-type FARGATE --task-definition ${aws_ecs_task_definition.init.family} --network-configuration 'awsvpcConfiguration={subnets=[${join(",", aws_subnet.private[*].id)}],securityGroups=[${aws_security_group.ecs_tasks.id}],assignPublicIp=DISABLED}'"
+  value       = "aws ecs run-task --region ${var.region} --cluster ${aws_ecs_cluster.main.name} --launch-type FARGATE --task-definition ${aws_ecs_task_definition.init.family} --network-configuration 'awsvpcConfiguration={subnets=[${join(",", local.private_subnet_ids)}],securityGroups=[${local.ecs_sg_id}],assignPublicIp=DISABLED}'"
 }
 
 output "rds_endpoint" {
@@ -43,7 +43,7 @@ output "redis_endpoint" {
 }
 
 output "data_host_instance_id" {
-  description = "EC2 instance id for the ClickHouse + Grafana + Prometheus host. Empty when clickhouse_mode = 'cloud'."
+  description = "EC2 instance id for the ClickHouse data host. Empty when clickhouse_mode = 'cloud'."
   value       = local.clickhouse_self_hosted ? aws_instance.data_host[0].id : ""
 }
 
@@ -81,4 +81,10 @@ output "log_group_names" {
     data_host = aws_cloudwatch_log_group.data_host.name
     flow_logs = aws_cloudwatch_log_group.flow_logs.name
   }
+}
+
+output "edition" {
+  description = "Deployed edition: community or enterprise (based on license key presence)."
+  sensitive   = true
+  value       = local.is_enterprise ? "enterprise" : "community"
 }

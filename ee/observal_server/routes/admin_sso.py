@@ -1,29 +1,43 @@
 # SPDX-FileCopyrightText: 2026 Hari Srinivasan <harisrini21@gmail.com>
+# SPDX-FileCopyrightText: 2026 Lokesh Selvam <lokeshselvam7025@gmail.com>
 # SPDX-License-Identifier: LicenseRef-Observal-Enterprise
 
 """Admin endpoints for SAML config and SCIM token management."""
 
 from __future__ import annotations
 
-import logging
+import re
 import secrets
+import time
 import uuid
 from typing import TYPE_CHECKING
+from urllib.parse import urlencode
 
-from fastapi import APIRouter, Depends, HTTPException
+import httpx
+from fastapi import APIRouter, Depends, HTTPException, Request
+from loguru import logger as optic
 from sqlalchemy import select
 
 if TYPE_CHECKING:
     from sqlalchemy.ext.asyncio import AsyncSession
 
+
+import services.dynamic_settings as ds
 from api.deps import get_db, get_or_create_default_org, require_role
-from config import settings
-from ee.observal_server.services.saml import encrypt_private_key, generate_sp_key_pair
+from api.ratelimit import limiter
+from ee.observal_server.routes.sso_saml import _get_saml_config, _run_saml_check_suite
+from ee.observal_server.services.saml import (
+    decrypt_private_key,
+    encrypt_private_key,
+    generate_sp_key_pair,
+)
 from ee.observal_server.services.scim_service import hash_scim_token
 from models.saml_config import SamlConfig
 from models.scim_token import ScimToken
 from models.user import User, UserRole
-from services.audit_helpers import audit
+from schemas.sso_health import all_pass, make_check
+from services import sso_diagnostics
+from services.oidc_health import run_oidc_checks
 from services.security_events import (
     EventType,
     SecurityEvent,
@@ -31,7 +45,12 @@ from services.security_events import (
     emit_security_event,
 )
 
-logger = logging.getLogger("observal.ee.admin_sso")
+_SAML_HEALTH_TIMEOUT = 10.0
+
+
+def _get_frontend_url() -> str:
+    return ds.get_sync("deployment.frontend_url", "http://localhost:3000")
+
 
 router = APIRouter(prefix="/api/v1/admin", tags=["admin-sso"])
 
@@ -49,28 +68,20 @@ async def get_saml_config(
     config = result.scalar_one_or_none()
 
     if not config:
-        has_env = bool(settings.SAML_IDP_ENTITY_ID and settings.SAML_IDP_SSO_URL)
-        await audit(current_user, "admin.saml_config.view", "saml_config")
+        has_dynamic = bool(ds.get_sync("saml.idp_entity_id") and ds.get_sync("saml.idp_sso_url"))
         return {
-            "configured": has_env,
-            "source": "env" if has_env else "none",
-            "idp_entity_id": settings.SAML_IDP_ENTITY_ID if has_env else None,
-            "idp_sso_url": settings.SAML_IDP_SSO_URL if has_env else None,
-            "idp_slo_url": settings.SAML_IDP_SLO_URL if has_env else None,
-            "sp_entity_id": settings.SAML_SP_ENTITY_ID if has_env else None,
-            "sp_acs_url": settings.SAML_SP_ACS_URL if has_env else None,
-            "jit_provisioning": settings.SAML_JIT_PROVISIONING if has_env else None,
-            "default_role": settings.SAML_DEFAULT_ROLE if has_env else None,
-            "has_idp_cert": bool(settings.SAML_IDP_X509_CERT) if has_env else False,
+            "configured": has_dynamic,
+            "source": "dynamic" if has_dynamic else "none",
+            "idp_entity_id": ds.get_sync("saml.idp_entity_id") if has_dynamic else None,
+            "idp_sso_url": ds.get_sync("saml.idp_sso_url") if has_dynamic else None,
+            "idp_slo_url": ds.get_sync("saml.idp_slo_url") if has_dynamic else None,
+            "sp_entity_id": ds.get_sync("saml.sp_entity_id") if has_dynamic else None,
+            "sp_acs_url": ds.get_sync("saml.sp_acs_url") if has_dynamic else None,
+            "jit_provisioning": ds.get_sync_bool("saml.jit_provisioning", True) if has_dynamic else None,
+            "default_role": ds.get_sync("saml.default_role", "user") if has_dynamic else None,
+            "has_idp_cert": bool(ds.get_sync("saml.idp_x509_cert")) if has_dynamic else False,
             "has_sp_key": False,
         }
-
-    await audit(
-        current_user,
-        "admin.saml_config.view",
-        "saml_config",
-        resource_id=str(config.id),
-    )
     return {
         "configured": True,
         "source": "database",
@@ -111,13 +122,13 @@ async def upsert_saml_config(
     default_org = await get_or_create_default_org(db)
     org_id = current_user.org_id or default_org.id
 
-    sp_entity_id = body.get("sp_entity_id") or f"{settings.FRONTEND_URL}/api/v1/sso/saml/metadata"
-    sp_acs_url = body.get("sp_acs_url") or f"{settings.FRONTEND_URL}/api/v1/sso/saml/acs"
+    sp_entity_id = body.get("sp_entity_id") or f"{_get_frontend_url()}/api/v1/sso/saml/metadata"
+    sp_acs_url = body.get("sp_acs_url") or f"{_get_frontend_url()}/api/v1/sso/saml/acs"
 
     result = await db.execute(select(SamlConfig).where(SamlConfig.org_id == org_id))
     config = result.scalar_one_or_none()
 
-    enc_password = settings.SAML_SP_KEY_ENCRYPTION_PASSWORD
+    enc_password = ds.get_sync("saml.sp_key_encryption_password")
 
     if not config:
         private_key_pem, cert_pem = generate_sp_key_pair(common_name=sp_entity_id)
@@ -170,12 +181,6 @@ async def upsert_saml_config(
             detail="SAML configuration updated",
         )
     )
-    await audit(
-        current_user,
-        "admin.saml_config.update",
-        "saml_config",
-        resource_id=str(config.id),
-    )
 
     return {
         "id": str(config.id),
@@ -220,13 +225,445 @@ async def delete_saml_config(
             detail="SAML configuration deleted",
         )
     )
-    await audit(
-        current_user,
-        "admin.saml_config.delete",
-        "saml_config",
-        resource_id=config_id,
-    )
     return {"deleted": config_id}
+
+
+# ── SSO Validation ────────────────────────────────────────
+
+
+def _first_failure(checks: list[dict]) -> tuple[str | None, str | None]:
+    for c in checks:
+        if c.get("status") == "fail":
+            return c.get("message"), c.get("hint")
+    return None, None
+
+
+@router.post("/sso/validate-oidc")
+async def validate_oidc(
+    current_user: User = Depends(require_role(UserRole.admin)),
+):
+    """Validate OIDC/OAuth end-to-end and return per-check diagnostics.
+
+    Note: server-side validation can only verify what the IdP exposes — the
+    final assertion exchange and any per-user authorization decisions are not
+    visible here, so a green result still depends on a real user login round-trip.
+    """
+    optic.info("admin.validate_oidc start")
+    start = time.monotonic()
+
+    client_id = ds.get_sync("oauth.client_id")
+    client_secret = ds.get_sync("oauth.client_secret")
+    metadata_url = ds.get_sync("oauth.server_metadata_url")
+    if not client_id or not client_secret:
+        return {
+            "success": False,
+            "error": "oauth.client_id or oauth.client_secret not configured",
+            "hint": "Set OIDC client ID, client secret, and discovery URL in the SSO tab, then restart the API.",
+            "checks": [],
+        }
+    if not metadata_url:
+        return {
+            "success": False,
+            "error": "oauth.server_metadata_url not configured",
+            "hint": "Point this at your IdP's .well-known/openid-configuration URL.",
+            "checks": [],
+        }
+
+    redirect_uri = (
+        ds.get_sync("deployment.frontend_url", "http://localhost:3000").rstrip("/") + "/api/v1/auth/oauth/callback"
+    )
+
+    checks, metadata = await run_oidc_checks(
+        metadata_url,
+        client_id,
+        client_secret,
+        redirect_uri,
+    )
+    success = all_pass(checks)
+    err_msg, err_hint = (None, None) if success else _first_failure(checks)
+    latency_ms = round((time.monotonic() - start) * 1000)
+    optic.info("admin.validate_oidc done success={} checks={} latency_ms={}", success, len(checks), latency_ms)
+    return {
+        "success": success,
+        "issuer": (metadata or {}).get("issuer"),
+        "checks": checks,
+        "latency_ms": latency_ms,
+        **({"error": err_msg, "hint": err_hint} if not success else {}),
+    }
+
+
+def _required_field_check(config) -> dict | None:
+    """Return a failing check dict if any required SAML field is empty, else None."""
+    missing = [
+        pretty
+        for attr, pretty in (
+            ("idp_entity_id", "IdP Entity ID"),
+            ("idp_sso_url", "IdP SSO URL"),
+            ("idp_x509_cert", "IdP X.509 certificate"),
+            ("sp_entity_id", "SP Entity ID"),
+            ("sp_acs_url", "SP ACS URL"),
+            ("sp_private_key_enc", "SP private key"),
+        )
+        if not getattr(config, attr, None)
+    ]
+    if not missing:
+        return None
+    return make_check(
+        "required_fields",
+        "Required SAML fields populated",
+        "fail",
+        f"Missing: {'; '.join(missing)}.",
+        "Complete the SAML configuration with all required fields.",
+    )
+
+
+@router.post("/sso/validate-saml")
+async def validate_saml(
+    db: AsyncSession = Depends(get_db),
+    current_user: User = Depends(require_role(UserRole.admin)),
+):
+    """Validate SAML configuration end-to-end and return per-check diagnostics.
+
+    Note: server-side validation cannot replay a signed assertion, so a green
+    result still depends on a real user login. NameIDFormat and signing-cert
+    rotation are only visible if ``saml.idp_metadata_url`` is configured.
+    """
+    optic.info("admin.validate_saml start")
+    start = time.monotonic()
+
+    config = await _get_saml_config(db)
+    if not config:
+        return {
+            "success": False,
+            "error": "SAML is not configured",
+            "hint": "Configure SAML in the SSO tab or the admin API.",
+            "checks": [],
+        }
+
+    field_failure = _required_field_check(config)
+    if field_failure is not None:
+        return {
+            "success": False,
+            "error": field_failure["message"],
+            "hint": field_failure["hint"],
+            "checks": [field_failure],
+            "latency_ms": round((time.monotonic() - start) * 1000),
+        }
+
+    # NOTE: keep the return *outside* the except clause so CodeQL doesn't
+    # taint the static response with the exception's stack trace.
+    sp_key: str | None = None
+    try:
+        sp_key = decrypt_private_key(
+            config.sp_private_key_enc,
+            ds.get_sync("saml.sp_key_encryption_password"),
+        )
+    except Exception:
+        optic.exception("admin.validate_saml SP key decrypt failed")
+    if sp_key is None:
+        return {
+            "success": False,
+            "error": "Failed to decrypt SP private key",
+            "hint": "Check saml.sp_key_encryption_password is correct.",
+            "checks": [
+                make_check(
+                    "sp_key_decrypt",
+                    "SP private key decrypts",
+                    "fail",
+                    "Decryption failed.",
+                    "Check saml.sp_key_encryption_password.",
+                )
+            ],
+            "latency_ms": round((time.monotonic() - start) * 1000),
+        }
+
+    frontend_url = _get_frontend_url()
+    async with httpx.AsyncClient(timeout=_SAML_HEALTH_TIMEOUT, follow_redirects=False) as client:
+        checks = await _run_saml_check_suite(config, sp_key, frontend_url, client)
+    checks.insert(0, make_check("sp_key_decrypt", "SP private key decrypts", "pass"))
+    success = all_pass(checks)
+    err_msg, err_hint = (None, None) if success else _first_failure(checks)
+    latency_ms = round((time.monotonic() - start) * 1000)
+    optic.info("admin.validate_saml done success={} checks={} latency_ms={}", success, len(checks), latency_ms)
+    return {
+        "success": success,
+        "idp_entity_id": config.idp_entity_id,
+        "checks": checks,
+        "latency_ms": latency_ms,
+        **({"error": err_msg, "hint": err_hint} if not success else {}),
+    }
+
+
+# ── SSO End-to-End Test ───────────────────────────────────
+#
+# These endpoints run the real login flow against the real IdP, the only
+# step that isn't automated is the user typing credentials at the IdP. Every
+# other step (token exchange, signature/audience validation, claim extraction,
+# user lookup) is recorded as a pass/fail check so the operator sees exactly
+# where the flow breaks.
+#
+# Critically, the e2e callback / ACS handlers:
+#   * never issue a JWT or auth cookie
+#   * never JIT-create a user (read-only DB lookup only)
+#   * never count as a real login in security events
+#
+# So an admin can run the test repeatedly without polluting state.
+
+_E2E_HTTP_TIMEOUT = 15.0
+
+
+@router.post("/sso/e2e/oidc/start")
+@limiter.limit(ds.get_sync("security.rate_limit_sso_health", "10/minute"))
+async def e2e_oidc_start(
+    request: Request,
+    current_user: User = Depends(require_role(UserRole.admin)),
+):
+    """Begin an OIDC end-to-end test. Returns the IdP authorize URL.
+
+    Runs the full validator suite first. If any check fails, discovery
+    unreachable, client_id wrong, redirect_uri not whitelisted, scope missing,
+    signing alg unsupported, we abort with the diagnostics *before* sending
+    the operator to the IdP. The IdP would just show its own error page and
+    never redirect back, leaving the admin tab polling forever.
+    """
+    client_id = ds.get_sync("oauth.client_id")
+    client_secret = ds.get_sync("oauth.client_secret")
+    metadata_url = ds.get_sync("oauth.server_metadata_url")
+    if not client_id or not metadata_url:
+        return {
+            "success": False,
+            "error": "OIDC is not configured on the server",
+            "hint": "Set OIDC client ID, client secret, and discovery URL in the SSO tab, then restart the API.",
+            "checks": [
+                make_check(
+                    "oidc_configured",
+                    "OIDC client configured on server",
+                    "fail",
+                    "OIDC client ID, client secret, or discovery URL not set.",
+                    "Configure OIDC in the SSO tab and restart the API.",
+                ),
+            ],
+        }
+
+    redirect_uri = (
+        ds.get_sync("deployment.frontend_url", "http://localhost:3000").rstrip("/") + "/api/v1/auth/oauth/callback"
+    )
+
+    # ── Pre-flight: run the full validator suite. ────────────────────────
+    # Every check the admin "Validate" button runs, plus a redirect_uri probe
+    # against this specific URL, runs here. If anything fails we never send
+    # the operator to the IdP, we just show them what to fix.
+    preflight_checks, metadata = await run_oidc_checks(
+        metadata_url,
+        client_id,
+        client_secret,
+        redirect_uri,
+    )
+    if not all_pass(preflight_checks):
+        first_fail = next((c for c in preflight_checks if c.get("status") == "fail"), None)
+        optic.info(
+            "admin.e2e_oidc_start preflight failed, first={}",
+            first_fail.get("name") if first_fail else "?",
+        )
+        return {
+            "success": False,
+            "error": (first_fail or {}).get("message") or "OIDC pre-flight checks failed",
+            "hint": (first_fail or {}).get("hint"),
+            "checks": preflight_checks,
+        }
+    if metadata is None:
+        # All checks passed but metadata is None, defensive fallback.
+        return {
+            "success": False,
+            "error": "OIDC discovery document missing despite passing probes",
+            "checks": preflight_checks,
+        }
+
+    authz_endpoint = metadata.get("authorization_endpoint")
+    if not authz_endpoint:
+        return {
+            "success": False,
+            "error": "Discovery document is missing authorization_endpoint",
+            "checks": preflight_checks,
+        }
+
+    # ── Pre-flight passed. Now stage the e2e session. ────────────────────
+    session_id, session = await sso_diagnostics.create_session("oidc", "e2e")
+    session["nonce"] = secrets.token_urlsafe(24)
+    session["authorization_endpoint"] = authz_endpoint
+    session["token_endpoint"] = metadata.get("token_endpoint")
+    session["jwks_uri"] = metadata.get("jwks_uri")
+    session["issuer"] = metadata.get("issuer")
+    # Seed the session with the preflight pass-list so the close-tab page
+    # shows the full story (preflight + live login round-trip).
+    initial_checks = [
+        *preflight_checks,
+        make_check("e2e_started", "End-to-end test initiated by admin", "pass"),
+    ]
+    await sso_diagnostics.finalize(session_id, checks=initial_checks)
+    full = await sso_diagnostics.get_session(session_id)
+    if full is not None:
+        full.update(
+            {
+                "nonce": session["nonce"],
+                "authorization_endpoint": authz_endpoint,
+                "token_endpoint": metadata.get("token_endpoint"),
+                "jwks_uri": metadata.get("jwks_uri"),
+                "issuer": metadata.get("issuer"),
+                "finished_at": None,
+                "ok": None,
+            }
+        )
+        await sso_diagnostics.save_session(full)
+
+    state = f"__e2e:{session_id}"
+    params = {
+        "response_type": "code",
+        "client_id": client_id,
+        "redirect_uri": redirect_uri,
+        "scope": "openid email profile groups",
+        "state": state,
+        "nonce": session["nonce"],
+    }
+    login_url = f"{authz_endpoint}?{urlencode(params)}"
+    optic.info("admin.e2e_oidc_start session_id={} issuer={}", session_id, metadata.get("issuer"))
+    return {
+        "success": True,
+        "session_id": session_id,
+        "login_url": login_url,
+        "redirect_uri": redirect_uri,
+        "issuer": metadata.get("issuer"),
+        "checks": preflight_checks,
+        "instructions": (
+            "Open the login URL in a new tab and authenticate with a real (test) user. "
+            "The result will appear here once the IdP redirects back."
+        ),
+    }
+
+
+@router.post("/sso/e2e/saml/start")
+@limiter.limit(ds.get_sync("security.rate_limit_sso_health", "10/minute"))
+async def e2e_saml_start(
+    request: Request,
+    db: AsyncSession = Depends(get_db),
+    current_user: User = Depends(require_role(UserRole.admin)),
+):
+    """Begin a SAML end-to-end test. Returns the SP-initiated login URL.
+
+    Runs the full validator suite first so common misconfig (missing SP
+    cert, cert/key mismatch, IdP SSO URL unreachable, NameIDFormat mismatch)
+    surfaces before we send the operator to the IdP. The IdP would otherwise
+    show its own error page and never POST the assertion back, leaving the
+    admin tab polling forever.
+    """
+    config = await _get_saml_config(db)
+    if not config:
+        return {
+            "success": False,
+            "error": "SAML is not configured",
+            "hint": "Configure SAML in the SSO tab or the admin API.",
+            "checks": [
+                make_check(
+                    "saml_configured",
+                    "SAML SSO is configured on server",
+                    "fail",
+                    "No SAML config found in DB or dynamic settings.",
+                    "Configure SAML in the SSO tab.",
+                ),
+            ],
+        }
+
+    # ── Pre-flight: required fields + full check suite. ──────────────────
+    field_failure = _required_field_check(config)
+    if field_failure is not None:
+        return {
+            "success": False,
+            "error": field_failure["message"],
+            "hint": field_failure["hint"],
+            "checks": [field_failure],
+        }
+
+    sp_key: str | None = None
+    try:
+        sp_key = decrypt_private_key(
+            config.sp_private_key_enc,
+            ds.get_sync("saml.sp_key_encryption_password"),
+        )
+    except Exception:
+        optic.exception("admin.e2e_saml_start SP key decrypt failed")
+    if sp_key is None:
+        return {
+            "success": False,
+            "error": "Failed to decrypt SP private key",
+            "hint": "Check saml.sp_key_encryption_password is correct.",
+            "checks": [
+                make_check(
+                    "sp_key_decrypt",
+                    "SP private key decrypts",
+                    "fail",
+                    "Decryption failed.",
+                    "Check saml.sp_key_encryption_password.",
+                ),
+            ],
+        }
+
+    frontend_url = _get_frontend_url()
+    async with httpx.AsyncClient(timeout=_SAML_HEALTH_TIMEOUT, follow_redirects=False) as client:
+        preflight_checks = await _run_saml_check_suite(config, sp_key, frontend_url, client)
+    preflight_checks.insert(0, make_check("sp_key_decrypt", "SP private key decrypts", "pass"))
+    if not all_pass(preflight_checks):
+        first_fail = next((c for c in preflight_checks if c.get("status") == "fail"), None)
+        optic.info(
+            "admin.e2e_saml_start preflight failed, first={}",
+            first_fail.get("name") if first_fail else "?",
+        )
+        return {
+            "success": False,
+            "error": (first_fail or {}).get("message") or "SAML pre-flight checks failed",
+            "hint": (first_fail or {}).get("hint"),
+            "checks": preflight_checks,
+        }
+
+    session_id, _ = await sso_diagnostics.create_session("saml", "e2e")
+    initial_checks = [
+        *preflight_checks,
+        make_check("e2e_started", "End-to-end test initiated by admin", "pass"),
+    ]
+    await sso_diagnostics.finalize(session_id, checks=initial_checks)
+    full = await sso_diagnostics.get_session(session_id)
+    if full is not None:
+        full["finished_at"] = None
+        full["ok"] = None
+        await sso_diagnostics.save_session(full)
+
+    base = ds.get_sync("deployment.frontend_url", "http://localhost:3000").rstrip("/")
+    login_url = f"{base}/api/v1/sso/saml/login?e2e={session_id}"
+    optic.info("admin.e2e_saml_start session_id={}", session_id)
+    return {
+        "success": True,
+        "session_id": session_id,
+        "login_url": login_url,
+        "idp_entity_id": getattr(config, "idp_entity_id", None),
+        "checks": preflight_checks,
+        "instructions": (
+            "Open the login URL in a new tab and authenticate with a real (test) user. "
+            "The result will appear here once the IdP posts the assertion back."
+        ),
+    }
+
+
+@router.get("/sso/e2e/status/{session_id}")
+async def e2e_status(
+    session_id: str,
+    current_user: User = Depends(require_role(UserRole.admin)),
+):
+    """Poll an end-to-end test session. Returns checks, ok, actor_email."""
+    if not session_id or len(session_id) > 64 or not re.fullmatch(r"[A-Za-z0-9_\-]+", session_id):
+        raise HTTPException(status_code=400, detail="Invalid session id")
+    session = await sso_diagnostics.get_session(session_id)
+    if not session:
+        raise HTTPException(status_code=404, detail="Session not found or expired")
+    return sso_diagnostics.public_view(session)
 
 
 # ── SCIM Token Management ──────────────────────────────────
@@ -245,8 +682,6 @@ async def list_scim_tokens(
 
     result = await db.execute(select(ScimToken).where(ScimToken.org_id == org_id).order_by(ScimToken.created_at.desc()))
     tokens = result.scalars().all()
-
-    await audit(current_user, "admin.scim_tokens.list", "scim_token")
     return [
         {
             "id": str(t.id),
@@ -298,12 +733,6 @@ async def create_scim_token(
             detail="SCIM token created",
         )
     )
-    await audit(
-        current_user,
-        "admin.scim_tokens.create",
-        "scim_token",
-        resource_id=str(token.id),
-    )
 
     return {
         "id": str(token.id),
@@ -350,11 +779,5 @@ async def revoke_scim_token(
             target_type="scim_token",
             detail="SCIM token revoked",
         )
-    )
-    await audit(
-        current_user,
-        "admin.scim_tokens.revoke",
-        "scim_token",
-        resource_id=str(token.id),
     )
     return {"revoked": str(token.id)}

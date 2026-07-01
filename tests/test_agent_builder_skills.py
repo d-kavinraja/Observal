@@ -1,7 +1,7 @@
 # SPDX-FileCopyrightText: 2026 Hari Srinivasan <harisrini21@gmail.com>
 # SPDX-License-Identifier: AGPL-3.0-only
 
-"""Tests for agent_builder._build_skill_files() — verbatim vs stub paths."""
+"""Tests for agent_builder._build_skills() — verbatim vs stub paths."""
 
 from __future__ import annotations
 
@@ -11,8 +11,8 @@ from services.agent_builder import (
     AgentManifest,
     ManifestComponent,
     ManifestComponents,
-    _build_skill_files,
-    generate_ide_agent_files,
+    _build_skills,
+    generate_harness_agent_profiles,
 )
 
 
@@ -58,25 +58,19 @@ Actually review the code properly.
 class TestBuildSkillFilesVerbatimPath:
     def test_claude_code_uses_verbatim(self):
         manifest = _skill_manifest(skill_md_content=VERBATIM_MD)
-        files = _build_skill_files(manifest, "claude-code")
+        files = _build_skills(manifest, "claude-code")
         assert len(files) == 1
         assert files[0].content == VERBATIM_MD
 
     def test_kiro_uses_verbatim(self):
         manifest = _skill_manifest(skill_md_content=VERBATIM_MD)
-        files = _build_skill_files(manifest, "kiro")
+        files = _build_skills(manifest, "kiro")
         assert len(files) == 1
         assert files[0].content == VERBATIM_MD
 
     def test_cursor_uses_verbatim(self):
         manifest = _skill_manifest(skill_md_content=VERBATIM_MD)
-        files = _build_skill_files(manifest, "cursor")
-        assert len(files) == 1
-        assert files[0].content == VERBATIM_MD
-
-    def test_vscode_uses_verbatim(self):
-        manifest = _skill_manifest(skill_md_content=VERBATIM_MD)
-        files = _build_skill_files(manifest, "vscode")
+        files = _build_skills(manifest, "cursor")
         assert len(files) == 1
         assert files[0].content == VERBATIM_MD
 
@@ -84,65 +78,51 @@ class TestBuildSkillFilesVerbatimPath:
 class TestBuildSkillFilesFallbackPath:
     def test_claude_code_fallback_has_frontmatter(self):
         manifest = _skill_manifest()  # no skill_md_content
-        files = _build_skill_files(manifest, "claude-code")
+        files = _build_skills(manifest, "claude-code")
         assert len(files) == 1
         content = files[0].content
         assert "name: code-review" in content
         assert "command: /review" in content
 
-    def test_cursor_fallback_has_mdc_format(self):
+    def test_cursor_fallback_has_yaml_frontmatter(self):
         manifest = _skill_manifest()
-        files = _build_skill_files(manifest, "cursor")
+        files = _build_skills(manifest, "cursor")
         assert len(files) == 1
-        assert "alwaysApply: false" in files[0].content
+        assert "name: code-review" in files[0].content
 
-    def test_monolithic_ides_return_empty(self):
-        """Only IDEs with no skill_file entry in IDE_REGISTRY return empty."""
+    def test_all_harnesses_produce_skills(self):
+        """All harnesses have skill entries and produce output."""
         manifest = _skill_manifest(skill_md_content=VERBATIM_MD)
-        # codex and copilot (GitHub Copilot viewer) have no skill_file in IDE_REGISTRY.
-        assert _build_skill_files(manifest, "codex") == []
-        assert _build_skill_files(manifest, "copilot") == []
+        for harness in ("codex", "copilot", "cursor", "claude-code", "kiro"):
+            assert _build_skills(manifest, harness) != [], f"{harness} should produce skill files"
 
 
 class TestSkillFilePaths:
     @pytest.mark.parametrize(
-        "ide,expected_prefix",
+        "harness,expected_prefix",
         [
             ("claude-code", ".claude/skills/"),
             ("kiro", ".kiro/skills/"),
-            ("cursor", ".cursor/rules/"),
-            ("vscode", ".github/instructions/"),
+            ("cursor", ".cursor/skills/"),
         ],
     )
-    def test_skill_file_path(self, ide: str, expected_prefix: str):
+    def test_skill_path(self, harness: str, expected_prefix: str):
         manifest = _skill_manifest(skill_md_content=VERBATIM_MD)
-        files = _build_skill_files(manifest, ide)
+        files = _build_skills(manifest, harness)
         assert len(files) == 1
         assert files[0].path.startswith(expected_prefix) or files[0].path.startswith(
             "~/" + expected_prefix.lstrip("./")
         )
 
 
-class TestGenerateIdeAgentFilesWithSkills:
+class TestGenerateHarnessAgentFilesWithSkills:
     @pytest.mark.parametrize(
-        "ide",
-        ["claude-code", "cursor", "kiro", "vscode", "gemini-cli", "opencode"],
+        "harness",
+        ["claude-code", "cursor", "kiro", "opencode", "codex", "copilot"],
     )
-    def test_skill_file_in_ide_output(self, ide: str):
+    def test_skill_in_harness_output(self, harness: str):
         manifest = _skill_manifest(skill_md_content=VERBATIM_MD)
-        config = generate_ide_agent_files(manifest, ide)
+        config = generate_harness_agent_profiles(manifest, harness)
         # The verbatim content uniquely identifies the skill file regardless of path.
-        skill_files = [f for f in config.files if f.content == VERBATIM_MD]
-        assert len(skill_files) == 1
-
-    @pytest.mark.parametrize(
-        "ide",
-        ["codex", "copilot"],
-    )
-    def test_no_skill_file_in_monolithic_ides(self, ide: str):
-        manifest = _skill_manifest(skill_md_content=VERBATIM_MD)
-        config = generate_ide_agent_files(manifest, ide)
-        skill_files = [
-            f for f in config.files if "SKILL.md" in f.path or "rules/" in f.path or "instructions/" in f.path
-        ]
-        assert len(skill_files) == 0
+        skills = [f for f in config.files if f.content == VERBATIM_MD]
+        assert len(skills) == 1
