@@ -6,15 +6,9 @@ import { useAuthGuard, useOptionalAuth } from "@/hooks/use-auth";
 
 export function AuthGuard({ children }: { children: React.ReactNode }) {
   const { ready } = useAuthGuard();
-<<<<<<< HEAD
-  // Don't render anything until auth state is confirmed to prevent flicker
-  // of protected content before redirect
-  if (!ready) return null;
-=======
   // Block rendering until auth state is confirmed to prevent flicker
   // of protected content before redirect
   if (!ready) return <div className="flex h-screen w-full items-center justify-center" />;
->>>>>>> 94aca4da1cb46d3ac79b505e7848d1808b68a428
   return <>{children}</>;
 }
 
