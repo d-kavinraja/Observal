@@ -1,10 +1,9 @@
 <!-- SPDX-FileCopyrightText: 2026 Apoorv Garg <apoorvgarg.21@gmail.com> -->
 <!-- SPDX-FileCopyrightText: 2026 tsitu0 <tomsitu0102@gmail.com> -->
+<!-- SPDX-FileCopyrightText: 2026 Nithin-Bhargav-07 <gaddamnithinbhargav@gmail.com> -->
 <!-- SPDX-License-Identifier: AGPL-3.0-only -->
 
 # Summary
-
-* [Welcome](README.md)
 
 ## Getting Started
 
@@ -16,8 +15,7 @@
 
 * [Overview](use-cases/README.md)
 * [Observe MCP traffic](use-cases/observe-mcp-traffic.md)
-* [Share agent configs across IDEs](use-cases/share-agent-configs.md)
-* [Evaluate and compare agents](use-cases/evaluate-agents.md)
+* [Share agent configs across harnesses](use-cases/share-agent-configs.md)
 * [Debug agent failures](use-cases/debug-agent-failures.md)
 * [Run a team-wide agent registry](use-cases/team-registry.md)
 
@@ -29,24 +27,31 @@
 * [observal scan](cli/scan.md)
 * [observal agent pull](cli/pull.md)
 * [observal registry](cli/registry.md)
+* [observal component](cli/component.md)
+* [observal models](cli/models.md)
 * [observal agent](cli/agent.md)
 * [observal ops](cli/ops.md)
 * [observal admin](cli/admin.md)
 * [observal doctor](cli/doctor.md)
-* [observal profile](cli/profile.md)
 * [observal self](cli/self.md)
+* [observal prompt](cli/prompt.md)
+* [observal server](cli/server.md)
+* [observal skill](cli/skill.md)
+* [observal uninstall](cli/uninstall.md)
 
 ## Self-Hosting
 
 * [Overview](self-hosting/README.md)
 * [Requirements](self-hosting/requirements.md)
+* [Single-node deployment](self-hosting/single-node-deploy.md)
+* [Production deployment](self-hosting/production-deploy.md)
 * [Docker Compose setup](self-hosting/docker-compose.md)
 * [AWS deployment with Terraform](self-hosting/aws-terraform.md)
+* [GCP deployment with Terraform](self-hosting/gcp-terraform.md)
 * [Configuration](self-hosting/configuration.md)
 * [Ports and volumes](self-hosting/ports-and-volumes.md)
 * [Databases](self-hosting/databases.md)
 * [Authentication and SSO](self-hosting/authentication.md)
-* [Evaluation engine](self-hosting/evaluation-engine.md)
 * [Telemetry pipeline](self-hosting/telemetry-pipeline.md)
 * [Upgrades](self-hosting/upgrades.md)
 * [Backup and restore](self-hosting/backup-and-restore.md)
@@ -54,20 +59,8 @@
 
 ## Integrations
 
-* [Overview](integrations/README.md)
-* [Claude Code](integrations/claude-code.md)
-* [Kiro CLI](integrations/kiro.md)
-* [Cursor](integrations/cursor.md)
-* [Gemini CLI](integrations/gemini-cli.md)
-* [VS Code](integrations/vscode.md)
-* [Codex CLI](integrations/codex-cli.md)
-
-## Concepts
-
-* [Overview](concepts/README.md)
-* [Data model](concepts/data-model.md)
-* [Evaluation engine](concepts/evaluation.md)
-* [Shim vs proxy](concepts/shim-vs-proxy.md)
+* [Kiro](integrations/kiro.md)
+* [OpenCode](integrations/opencode.md)
 
 ## Reference
 
@@ -80,4 +73,5 @@
 
 * [Contributing Guide](../CONTRIBUTING.md)
 * [Development Guide](DEVELOPMENT_GUIDE.md)
+* [Testing Guide](testing/Testing_Guide.md)
 * [AI Policy](../AI_POLICY.md)

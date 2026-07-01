@@ -14,14 +14,14 @@ Every MCP tool call becomes a span with:
 * Response payload
 * Latency (ms)
 * Status (success / error) and error message
-* Token counts and cost (where the IDE exposes them — Claude Code does, Kiro gives credits only)
-* A `trace_id` that groups calls from the same agent turn, and a `session_id` that groups calls across an IDE session
+* Token counts and cost (where the harness exposes them; Claude Code does, Kiro gives credits only)
+* A `trace_id` that groups calls from the same agent turn, and a `session_id` that groups calls across an harness session
 
 Spans stream into ClickHouse in near real-time. You query them from the web UI or the CLI.
 
 ## Discover and instrument an existing setup
 
-If you already have MCP servers configured in Claude Code, Kiro, Cursor, VS Code, or Gemini CLI, first see what's there:
+If you already have MCP servers configured in Claude Code, Kiro, Cursor, VS Code, or Copilot, first see what's there:
 
 ```bash
 observal scan
@@ -30,48 +30,47 @@ observal scan
 `scan` is read-only -- it lists your MCP servers without modifying anything. Then instrument them:
 
 ```bash
-observal doctor patch --all --all-ides
+observal doctor patch --all --all-harnesses
 ```
 
 This:
 
-1. Finds every MCP config file on your machine (`~/.claude/settings.json`, `.kiro/settings/mcp.json`, `.cursor/mcp.json`, `.vscode/mcp.json`, `.gemini/settings.json`).
+1. Finds every MCP config file on your machine (`~/.claude/settings.json`, `.kiro/settings/mcp.json`, `.cursor/mcp.json`, `.vscode/mcp.json`, `~/.copilot/mcp-config.json`).
 2. Rewrites each config so every server runs through `observal-shim`.
 3. Installs telemetry hooks for session lifecycle events.
-4. Configures OTel export where supported.
-5. Saves a timestamped `.bak` next to every file it modified.
+4. Saves a timestamped `.bak` next to every file it modified.
 
-Scope to specific IDEs:
+Scope to specific harnesses:
 
 ```bash
-observal doctor patch --all --ide claude-code
-observal doctor patch --all --ide kiro
-observal doctor patch --all --ide gemini-cli
+observal doctor patch --all --harness claude-code
+observal doctor patch --all --harness kiro
+observal doctor patch --all --harness copilot-cli
 ```
 
 ## Observability at zero cost to your agents
 
-The shim is transparent — it forwards every byte unchanged. If it can't reach the Observal server, the tool call **still succeeds** and telemetry is buffered locally in `~/.observal/telemetry_buffer.db`, flushed on the next successful contact. See [Core Concepts → Telemetry buffer](../getting-started/core-concepts.md#telemetry-buffer).
+The shim is transparent - it forwards every byte unchanged. If it can't reach the Observal server, the tool call **still succeeds** and telemetry is buffered locally in `~/.observal/telemetry_buffer.db`, flushed on the next successful contact. See [Core Concepts → Telemetry buffer](../getting-started/core-concepts.md#telemetry-buffer).
 
-Restart your IDE after `doctor patch`. The next MCP call produces a trace.
+Restart your harness after `doctor patch`. The next MCP call produces a trace.
 
 ## Query what you collected
 
-**Web UI** — open `http://localhost:3000/traces`. Filter by IDE, agent, MCP, or time range.
+**Web UI**: open `http://localhost/traces`. Filter by harness, agent, MCP, or time range.
 
-**CLI** — list recent traces and drill into spans:
+**CLI**: list recent traces and drill into spans:
 
 ```bash
 # Last 20 traces
 observal ops traces --limit 20
 
-# Last 20 from a specific MCP server
-observal ops traces --mcp github-mcp
+# Unfold to see tool calls
+observal ops traces --turn --limit 10
 
 # Dive into a specific trace
 observal ops spans <trace-id>
 
-# Ranking dashboard — which MCP servers are hottest?
+# Ranking dashboard - which MCP servers are hottest?
 observal ops top --type mcp
 
 # Metrics for one MCP (live-updating)
@@ -83,15 +82,14 @@ observal ops metrics github-mcp --type mcp --watch
 Once traces are flowing you can:
 
 * **Find the bottleneck.** `observal ops top --type mcp` → which servers are called most and which are slowest.
-* **Spot errors early.** Alert rules fire on error-rate spikes — see the Alerts page in the web UI.
+* **Spot errors early.** Alert rules fire on error-rate spikes. See the Alerts page in the web UI.
 * **Plan removals.** A tool nobody uses after a week is a tool you can delete from the agent config.
-* **Feed the eval engine.** Traces are the raw material evaluators score against.
 
 ## Caveats
 
-* Token counts and cost are only as good as what the IDE exposes. Claude Code provides both. Kiro exposes billing credits instead of token counts; Observal shows credits for Kiro sessions.
+* Token counts and cost are only as good as what the harness exposes. Claude Code provides both. Kiro exposes billing credits instead of token counts; Observal shows credits for Kiro sessions.
 * HTTP/SSE MCP servers route through `observal-proxy`, not `observal-shim`. `doctor patch` picks the right one automatically based on the transport field.
 
 ## Next
 
-→ [Debug agent failures](debug-agent-failures.md) — now that you have traces, here's how to actually use them when something breaks.
+→ [Debug agent failures](debug-agent-failures.md): now that you have traces, here's how to actually use them when something breaks.

@@ -5,7 +5,7 @@
 
 """observal-shim: transparent stdio wrapper for MCP servers.
 
-Sits on the stdio pipe between IDE and MCP, passes all JSON-RPC messages
+Sits on the stdio pipe between harness and MCP, passes all JSON-RPC messages
 through untouched, and async fire-and-forgets copies to the Observal server.
 """
 
@@ -20,7 +20,7 @@ import time
 import uuid
 from datetime import UTC, datetime
 
-import httpx
+from loguru import logger as optic
 
 from observal_cli.config import load as load_config
 
@@ -121,7 +121,7 @@ class ShimState:
         self.trace_id = os.environ.get("OBSERVAL_TRACE_ID") or str(uuid.uuid4())
         self.parent_trace_id = os.environ.get("OBSERVAL_TRACE_ID")  # if set, we're a child
         self.session_id = os.environ.get("OBSERVAL_SESSION_ID", "")
-        self.ide = os.environ.get("OBSERVAL_IDE", "")
+        self.harness = os.environ.get("OBSERVAL_HARNESS", "")
         self.environment = os.environ.get("OBSERVAL_ENVIRONMENT", "default")
         self.trace_start = datetime.now(UTC)
 
@@ -185,7 +185,7 @@ class ShimState:
             "end_time": now,
             "latency_ms": latency_ms,
             "status": status,
-            "ide": self.ide,
+            "harness": self.harness,
             "metadata": {},
             "tool_schema_valid": tool_schema_valid,
             "tools_available": tools_available,
@@ -209,38 +209,8 @@ class ShimState:
         await self._send(spans)
 
     async def _send(self, spans: list[dict]):
-        """Fire-and-forget send to Observal server."""
-        payload = {
-            "traces": [
-                {
-                    "trace_id": self.trace_id,
-                    "parent_trace_id": self.parent_trace_id,
-                    "trace_type": "mcp",
-                    "mcp_id": self.mcp_id,
-                    "agent_id": self.agent_id,
-                    "session_id": self.session_id,
-                    "ide": self.ide,
-                    "name": f"shim:{self.mcp_id}",
-                    "start_time": self.trace_start.strftime("%Y-%m-%d %H:%M:%S.%f")[:-3],
-                    "tags": [],
-                    "metadata": {},
-                }
-            ],
-            "spans": spans,
-            "scores": [],
-        }
-        try:
-            async with httpx.AsyncClient(timeout=5) as client:
-                await client.post(
-                    f"{self.server_url}/api/v1/telemetry/ingest",
-                    json=payload,
-                    headers={
-                        "Authorization": f"Bearer {self.access_token}",
-                        "X-Observal-Environment": self.environment,
-                    },
-                )
-        except Exception:
-            pass  # fire-and-forget: never block, never retry
+        """No-op: structured span telemetry was removed in favor of JSONL sessions."""
+        return
 
     async def send_final(self):
         """Flush remaining buffer and send trace end_time."""
@@ -282,7 +252,7 @@ async def _relay_ide_to_mcp(
     mcp_stdin: asyncio.StreamWriter,
     state: ShimState,
 ):
-    """Relay messages from IDE to MCP, tracking requests."""
+    """Relay messages from harness to MCP, tracking requests."""
     while True:
         msg = await ide_queue.get()
         if msg is None:
@@ -301,7 +271,7 @@ async def _relay_mcp_to_ide(
     ide_stdout: asyncio.StreamWriter | None,
     state: ShimState,
 ):
-    """Relay messages from MCP to IDE, pairing responses to create spans."""
+    """Relay messages from MCP to harness, pairing responses to create spans."""
     while True:
         msg = await mcp_queue.get()
         if msg is None:
@@ -372,7 +342,7 @@ def _emit_error_notification(message: str) -> None:
 
 
 async def _emit_error_notification_async(message: str, ide_stdout) -> None:
-    """Write a JSON-RPC error notification to the IDE stream (async version for post-relay errors)."""
+    """Write a JSON-RPC error notification to the harness stream (async version for post-relay errors)."""
     notification = (
         json.dumps(
             {
@@ -397,6 +367,7 @@ async def _emit_error_notification_async(message: str, ide_stdout) -> None:
 
 async def run_shim(mcp_id: str, command: list[str]):
     """Main shim entry point: spawn MCP process and relay stdio."""
+    optic.debug("shim started: mcp_id={}, command={}", mcp_id, command)
     # On Windows, asyncio.create_subprocess_exec cannot find .cmd/.bat
     # scripts (like npx.cmd) by PATH alone. Resolve the executable first.
     if sys.platform == "win32" and command:
@@ -449,7 +420,7 @@ async def run_shim(mcp_id: str, command: list[str]):
         _emit_error_notification(f"MCP server failed to start: {error_msg}")
         return proc.returncode
 
-    # Set up IDE stdin reader.
+    # Set up harness stdin reader.
     # On Windows, connect_read_pipe / connect_write_pipe don't work with
     # regular file handles (stdin/stdout). Use a background thread instead.
     ide_reader = asyncio.StreamReader()
@@ -461,11 +432,11 @@ async def run_shim(mcp_id: str, command: list[str]):
         protocol = asyncio.StreamReaderProtocol(ide_reader)
         await asyncio.get_event_loop().connect_read_pipe(lambda: protocol, sys.stdin)
 
-    # Set up IDE stdout writer.
+    # Set up harness stdout writer.
     if sys.platform == "win32":
         # On Windows, write directly to stdout buffer instead of using
         # connect_write_pipe which fails on the Proactor event loop.
-        ide_stdout = None  # sentinel — _relay_mcp_to_ide will write to sys.stdout
+        ide_stdout = None  # sentinel - _relay_mcp_to_ide will write to sys.stdout
     else:
         ide_writer_transport, ide_writer_protocol = await asyncio.get_event_loop().connect_write_pipe(
             asyncio.streams.FlowControlMixin, sys.stdout

@@ -69,18 +69,18 @@ def _agent_mock(status=AgentStatus.approved, created_by=None, **extra):
     m.model_name = extra.get("model_name", "claude-sonnet-4")
     m.model_config_json = {}
     m.external_mcps = []
-    m.supported_ides = []
-    m.required_ide_features = []
-    m.inferred_supported_ides = []
+    m.supported_harnesses = []
+    m.required_capabilities = []
+    m.inferred_supported_harnesses = []
     m.status = status
     m.rejection_reason = None
     m.download_count = 0
     m.unique_users = 0
-    m.visibility = "private"
     m.owner_org_id = None
     m.git_url = None
     m.created_by = created_by or uuid.uuid4()
     m.created_at = datetime.now(UTC)
+    m.deleted_at = None
     m.updated_at = datetime.now(UTC)
     m.components = extra.get("components", [])
     col_keys = [
@@ -94,8 +94,7 @@ def _agent_mock(status=AgentStatus.approved, created_by=None, **extra):
         "model_name",
         "model_config_json",
         "external_mcps",
-        "supported_ides",
-        "visibility",
+        "supported_harnesses",
         "owner_org_id",
         "status",
         "rejection_reason",
@@ -103,6 +102,7 @@ def _agent_mock(status=AgentStatus.approved, created_by=None, **extra):
         "unique_users",
         "created_by",
         "created_at",
+        "deleted_at",
         "updated_at",
     ]
     cols = []
@@ -124,13 +124,12 @@ class TestAgentNameLookup:
     """Ensure _load_agent resolves hyphenated and short names correctly."""
 
     @pytest.mark.asyncio
-    @patch("api.routes.agent._resolve_component_names", return_value={})
-    @patch("api.routes.agent._load_agent")
+    @patch("api.routes.agent.crud._resolve_component_names", return_value={})
+    @patch("api.routes.agent.crud._load_agent")
     async def test_hyphenated_name_resolves(self, mock_load, mock_names):
         """GET /agents/my-cool-agent resolves via name lookup."""
         user = _user()
         agent = _agent_mock(name="my-cool-agent", created_by=user.id)
-        agent.visibility = "public"
         mock_load.return_value = agent
 
         app, db, _ = _app_with(user=user, db=_mock_db())
@@ -147,13 +146,12 @@ class TestAgentNameLookup:
         assert r.json()["name"] == "my-cool-agent"
 
     @pytest.mark.asyncio
-    @patch("api.routes.agent._resolve_component_names", return_value={})
-    @patch("api.routes.agent._load_agent")
+    @patch("api.routes.agent.crud._resolve_component_names", return_value={})
+    @patch("api.routes.agent.crud._load_agent")
     async def test_short_hyphenated_name_resolves(self, mock_load, mock_names):
         """GET /agents/a-b resolves via name lookup (not rejected as short prefix)."""
         user = _user()
         agent = _agent_mock(name="a-b", created_by=user.id)
-        agent.visibility = "public"
         mock_load.return_value = agent
 
         app, db, _ = _app_with(user=user, db=_mock_db())

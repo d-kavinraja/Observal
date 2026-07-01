@@ -6,11 +6,15 @@ import { test, expect } from "@playwright/test";
 import { execSync } from "child_process";
 import { getApiKey, API_BASE } from "./helpers";
 
+const CWD = execSync("git rev-parse --show-toplevel", {
+  encoding: "utf-8",
+}).trim();
+
 function run(cmd: string): string {
   return execSync(cmd, {
     encoding: "utf-8",
     timeout: 30_000,
-    cwd: "/home/haz3/code/blazeup/Observal",
+    cwd: CWD,
   });
 }
 
@@ -63,7 +67,7 @@ test.describe("Kiro Agent Cross-Compatibility", () => {
 
     try {
       run(
-        `observal pull ${agentId} --ide kiro --dir /tmp/kiro-compat-pull 2>&1`,
+        `observal pull ${agentId} --harness kiro --dir /tmp/kiro-compat-pull 2>&1`,
       );
     } catch (e: unknown) {
       // Pull might fail if agent has no components — that's OK for this test
@@ -101,7 +105,7 @@ test.describe("Kiro Agent Cross-Compatibility", () => {
 
     try {
       run(
-        `observal pull ${agentId} --ide claude-code --dir /tmp/cc-compat-pull 2>&1`,
+        `observal pull ${agentId} --harness claude-code --dir /tmp/cc-compat-pull 2>&1`,
       );
     } catch (e: unknown) {
       const err = e as { stdout?: string; message?: string };

@@ -3,32 +3,20 @@
 
 # observal ops
 
-Operational and observability commands — dashboards, traces, spans, metrics, feedback.
+Operational and observability commands: dashboards, traces, spans, metrics, feedback.
 
 ## Subcommands
 
 | Command | Description |
 | --- | --- |
-| [`ops overview`](#observal-ops-overview) | Dashboard summary stats |
 | [`ops metrics`](#observal-ops-metrics) | Metrics for one MCP or agent |
 | [`ops top`](#observal-ops-top) | Top items by usage |
 | [`ops traces`](#observal-ops-traces) | List recent traces |
 | [`ops spans`](#observal-ops-spans) | Spans for one trace |
 | [`ops rate`](#observal-ops-rate) | Rate an MCP or agent (1–5 stars) |
 | [`ops feedback`](#observal-ops-feedback) | View feedback for an MCP or agent |
-| [`ops sync`](#observal-ops-sync) | Flush locally buffered telemetry |
 | [`ops telemetry status`](#observal-ops-telemetry-status) | Telemetry pipeline status |
 | [`ops telemetry test`](#observal-ops-telemetry-test) | Send a test telemetry event |
-
----
-
-## `observal ops overview`
-
-Summary stats across your server — total traces, active agents, error rate, top MCPs.
-
-```bash
-observal ops overview
-```
 
 ---
 
@@ -64,21 +52,21 @@ observal ops top --type agent --limit 20
 
 ## `observal ops traces`
 
-List recent traces. Filter by agent, MCP, or type.
+List recent traces (sessions). By default shows a summary table. Use `--turn` to unfold sessions into a tree showing prompts and tool calls, or `--span` for full detail.
 
 ### Synopsis
 
 ```bash
-observal ops traces [--type <type>] [--agent <id>] [--mcp <id>] [--limit N] [--session <id>] [--output table|json]
+observal ops traces [--platform <harness>] [--days N] [--limit N] [--turn] [--span] [--output table|json]
 ```
 
 ### Examples
 
 ```bash
 observal ops traces --limit 20
-observal ops traces --agent code-reviewer --limit 50
-observal ops traces --mcp github-mcp
-observal ops traces --session <session-id>
+observal ops traces --turn --limit 5
+observal ops traces --span --limit 3
+observal ops traces --platform kiro --days 7
 observal ops traces --output json | jq
 ```
 
@@ -117,18 +105,6 @@ observal ops feedback <id-or-name> [--type mcp|agent]
 
 ---
 
-## `observal ops sync`
-
-Flush the local telemetry buffer. When the Observal server is unreachable, hook events accumulate in `~/.observal/telemetry_buffer.db`. This command sends them in batches.
-
-```bash
-observal ops sync
-```
-
-Auto-flush also happens on the next successful CLI invocation — you rarely need to run this manually.
-
----
-
 ## `observal ops telemetry status`
 
 Telemetry pipeline health and local buffer stats.
@@ -148,11 +124,10 @@ Send a test telemetry event. Useful for verifying instrumentation end-to-end.
 
 ```bash
 observal ops telemetry test
-# Test event sent — view at http://localhost:3000/traces
+# Test event sent. View at http://localhost/traces
 ```
 
 ## Related
 
 * [Use Cases → Observe MCP traffic](../use-cases/observe-mcp-traffic.md)
 * [Use Cases → Debug agent failures](../use-cases/debug-agent-failures.md)
-* [Data model](../concepts/data-model.md)

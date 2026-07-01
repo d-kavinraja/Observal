@@ -2,19 +2,17 @@
 # SPDX-License-Identifier: AGPL-3.0-only
 
 import hashlib
-import logging
 import uuid
 from datetime import UTC, datetime
 
 from fastapi import Request
+from loguru import logger as optic
 from sqlalchemy import func, select
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from models.agent import Agent
 from models.download import AgentDownloadRecord, ComponentDownloadRecord
-
-logger = logging.getLogger(__name__)
 
 
 def _anonymous_fingerprint(request: Request) -> str:
@@ -28,11 +26,12 @@ async def record_agent_download(
     agent_id: uuid.UUID,
     user_id: uuid.UUID | None,
     source: str,
-    ide: str | None,
+    harness: str | None,
     request: Request,
     db: AsyncSession,
 ) -> bool:
     """Record an agent download with deduplication. Returns True if new download, False if duplicate."""
+    optic.trace("recording download for agent {}", agent_id)
     fingerprint = _anonymous_fingerprint(request) if user_id is None else None
 
     record = AgentDownloadRecord(
@@ -40,7 +39,7 @@ async def record_agent_download(
         user_id=user_id,
         fingerprint=fingerprint,
         source=source,
-        ide=ide,
+        harness=harness,
     )
     # Use a savepoint so that IntegrityError rollback doesn't expire
     # all objects in the outer session (which causes MissingGreenlet
@@ -53,7 +52,7 @@ async def record_agent_download(
         await _update_agent_counts(agent_id, db)
         return True
     except IntegrityError:
-        logger.debug("Duplicate download for agent %s (user=%s), skipping", agent_id, user_id)
+        optic.debug("skipping duplicate download for agent {} (already counted)", agent_id)
         return False
 
 

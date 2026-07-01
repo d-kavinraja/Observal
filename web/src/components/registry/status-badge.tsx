@@ -5,8 +5,8 @@ import { cn } from "@/lib/utils";
 
 const statusConfig: Record<string, { bg: string; text: string; dot?: string; ping?: boolean }> = {
   draft:     { bg: "bg-muted", text: "text-muted-foreground", dot: "bg-muted-foreground" },
-  pending:   { bg: "bg-light-yellow", text: "text-dark-yellow", dot: "bg-dark-yellow", ping: true },
-  approved:  { bg: "bg-light-green",  text: "text-dark-green",  dot: "bg-dark-green",  ping: true },
+  pending:   { bg: "bg-light-yellow", text: "text-dark-yellow" },
+  approved:  { bg: "bg-light-green",  text: "text-dark-green" },
   active:    { bg: "bg-light-green",  text: "text-dark-green",  dot: "bg-dark-green",  ping: true },
   rejected:  { bg: "bg-light-red",    text: "text-dark-red" },
   inactive:  { bg: "bg-light-red",    text: "text-dark-red" },
@@ -15,7 +15,8 @@ const statusConfig: Record<string, { bg: string; text: string; dot?: string; pin
   running:   { bg: "bg-light-blue",   text: "text-dark-blue",   dot: "bg-dark-blue",   ping: true },
   completed: { bg: "bg-light-green",  text: "text-dark-green" },
   success:   { bg: "bg-light-green",  text: "text-dark-green" },
-  archived:  { bg: "bg-muted", text: "text-muted-foreground" },
+  archived:  { bg: "bg-light-yellow", text: "text-dark-yellow" },
+  deleted:   { bg: "bg-light-red",    text: "text-dark-red" },
 };
 
 const fallback = { bg: "bg-muted", text: "text-muted-foreground" };

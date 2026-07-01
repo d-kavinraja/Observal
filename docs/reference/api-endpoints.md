@@ -13,7 +13,7 @@ Base path: `/api/v1`.
 | Method | Path | Description |
 | --- | --- | --- |
 | `POST` | `/auth/bootstrap` | Auto-create admin on fresh server (localhost only) |
-| `POST` | `/auth/register` | Self-registration (email + password; `DEPLOYMENT_MODE=local` only) |
+| `POST` | `/auth/register` | Self-registration (email + password; `deployment.sso_only=false` only) |
 | `POST` | `/auth/login` | Login with API key or email + password |
 | `POST` | `/auth/exchange` | Exchange one-time OAuth code for credentials |
 | `GET` | `/auth/whoami` | Current user info |
@@ -36,7 +36,7 @@ All `{id}` parameters accept a UUID or a name.
 | `POST` | `/{type}` | Submit / create |
 | `GET` | `/{type}` | List approved items |
 | `GET` | `/{type}/{id}` | Get details |
-| `POST` | `/{type}/{id}/install` | Get IDE config snippet |
+| `POST` | `/{type}/{id}/install` | Get harness config snippet |
 | `DELETE` | `/{type}/{id}` | Delete |
 | `GET` | `/{type}/{id}/metrics` | Metrics |
 | `POST` | `/agents/{id}/pull` | Pull agent (installs all components) |
@@ -45,7 +45,7 @@ All `{id}` parameters accept a UUID or a name.
 
 | Method | Path | Description |
 | --- | --- | --- |
-| `POST` | `/scan` | Bulk register items from IDE config scan |
+| `POST` | `/scan` | Bulk register items from harness config scan |
 
 ### Review
 
@@ -63,7 +63,7 @@ All `{id}` parameters accept a UUID or a name.
 | `POST` | `/telemetry/ingest` | Batch ingest traces, spans, scores |
 | `POST` | `/telemetry/events` | Legacy event ingestion |
 | `GET` | `/telemetry/status` | Data flow status |
-| `GET` | `/otel/crypto/public-key` | Server public key for payload encryption |
+| `GET` | `/crypto/public-key` | Server public key for payload encryption |
 
 ## Telemetry hooks
 
@@ -80,24 +80,6 @@ All `{id}` parameters accept a UUID or a name.
 | `PATCH` | `/alerts/{id}` | Update alert rule |
 | `DELETE` | `/alerts/{id}` | Delete alert rule |
 | `GET` | `/alerts/{id}/history` | Alert firing history |
-
-## Evaluation
-
-| Method | Path | Description |
-| --- | --- | --- |
-| `POST` | `/eval/agents/{id}` | Run evaluation |
-| `GET` | `/eval/agents/{id}/scorecards` | List scorecards |
-| `GET` | `/eval/scorecards/{id}` | Scorecard details |
-| `GET` | `/eval/agents/{id}/compare` | Compare versions |
-| `GET` | `/eval/agents/{id}/aggregate` | Aggregate scoring stats |
-
-### Dashboard helpers
-
-| Method | Path | Description |
-| --- | --- | --- |
-| `POST` | `/dashboard/graphrag-ragas-eval` | Trigger RAGAS evaluation on GraphRAG spans |
-| `GET` | `/dashboard/graphrag-ragas-scores` | Retrieve RAGAS scores |
-
 ## Feedback
 
 | Method | Path | Description |
@@ -118,13 +100,8 @@ Requires `admin` or `super_admin` role.
 | `POST` | `/admin/users` | Create user |
 | `PUT` | `/admin/users/{id}/role` | Change role |
 | `PUT` | `/admin/users/{id}/password` | Reset user password (admin) |
-| `GET` | `/admin/penalties` | List penalty catalog |
-| `PUT` | `/admin/penalties/{id}` | Modify penalty |
 | `GET` | `/admin/weights` | Get dimension weights |
 | `PUT` | `/admin/weights` | Set dimension weights |
-| `GET` | `/admin/canaries/{agent_id}` | List canary configs |
-| `POST` | `/admin/canaries` | Create canary config |
-| `DELETE` | `/admin/canaries/{id}` | Delete canary config |
 | `GET` | `/admin/canaries/{agent_id}/reports` | Canary detection reports |
 
 ## GraphQL
@@ -141,12 +118,12 @@ Subscriptions use `graphql-ws` protocol.
 
 | Method | Path | Description |
 | --- | --- | --- |
-| `GET` | `/health` | Readiness — checks DB + ClickHouse |
-| `GET` | `/healthz` | Liveness — is the API process alive |
+| `GET` | `/health` | Readiness - checks DB + ClickHouse |
+| `GET` | `/healthz` | Liveness - is the API process alive |
 
 ## Rate limiting
 
-Auth endpoints are subject to `RATE_LIMIT_AUTH` and `RATE_LIMIT_AUTH_STRICT`. Non-auth endpoints are not rate-limited by default — put a reverse proxy or API gateway in front if you need it.
+Auth endpoints are subject to `RATE_LIMIT_AUTH` and `RATE_LIMIT_AUTH_STRICT`. Non-auth endpoints are not rate-limited by default; put a reverse proxy or API gateway in front if you need it.
 
 ## Request size limits
 

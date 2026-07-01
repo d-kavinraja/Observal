@@ -2,7 +2,6 @@
 // SPDX-FileCopyrightText: 2026 Lokesh Selvam <lokeshselvam7025@gmail.com>
 // SPDX-License-Identifier: AGPL-3.0-only
 
-"use client";
 
 import {
   useState,
@@ -36,18 +35,23 @@ import {
   DialogHeader,
   DialogTitle,
 } from "@/components/ui/dialog";
-import { Search } from "lucide-react";
 import {
-  useRegistryList,
   useAgentValidation,
   useCreateAgentVersion,
   useUpdateAgent,
   useVersionSuggestions,
 } from "@/hooks/use-api";
-import type { RegistryItem, ValidationResult } from "@/lib/types";
+import type {
+  AgentVersionDetail,
+  RegistryItem,
+  ValidationResult,
+} from "@/lib/types";
 import type { RegistryType } from "@/lib/api";
+import { ModelPicker } from "@/components/builder/model-picker";
 import { SortableComponentList } from "@/components/builder/sortable-component-list";
 import { ValidationPanel } from "@/components/builder/validation-panel";
+import { COMPONENT_TYPES, REVERSE_TYPE_MAP, TYPE_MAP } from "@/components/registry/agent-component-constants";
+import { ComponentPicker } from "@/components/registry/component-picker";
 import { VersionBumpDialog } from "@/components/registry/version-bump-dialog";
 
 // ── Types ─────────────────────────────────────────────────────────
@@ -57,15 +61,14 @@ interface AgentDetail {
   status?: string;
   version?: string;
   owner?: string;
-  visibility?: string;
-  team_accesses?: { group_name: string; permission: "view" | "edit" }[];
   user_permission?: string;
   description?: string;
   prompt?: string;
   model_name?: string;
+  models_by_harness?: Record<string, string>;
   component_links?: ComponentLink[];
   mcp_links?: ComponentLink[];
-  supported_ides?: string[];
+  supported_harnesses?: string[];
   [key: string]: unknown;
 }
 
@@ -83,117 +86,9 @@ interface ComponentLink {
 export interface AgentEditFormProps {
   agentId: string;
   agent: AgentDetail;
-  versionDetail?: Record<string, unknown>;
+  versionDetail?: AgentVersionDetail;
   currentVersion: string;
   onSuccess?: () => void;
-}
-
-// ── Constants ─────────────────────────────────────────────────────
-
-const COMPONENT_TYPES: { value: RegistryType; label: string }[] = [
-  { value: "mcps", label: "MCPs" },
-  { value: "skills", label: "Skills" },
-  { value: "hooks", label: "Hooks" },
-  { value: "prompts", label: "Prompts" },
-  { value: "sandboxes", label: "Sandboxes" },
-];
-
-const TYPE_MAP: Record<string, string> = {
-  mcps: "mcp",
-  skills: "skill",
-  hooks: "hook",
-  prompts: "prompt",
-  sandboxes: "sandbox",
-};
-
-const REVERSE_TYPE_MAP: Record<string, string> = {
-  mcp: "mcps",
-  skill: "skills",
-  hook: "hooks",
-  prompt: "prompts",
-  sandbox: "sandboxes",
-};
-
-
-// ── Utilities ─────────────────────────────────────────────────────
-
-
-// ── Component Picker ──────────────────────────────────────────────
-
-function ComponentPicker({
-  type,
-  selected,
-  onToggle,
-}: {
-  type: RegistryType;
-  selected: Set<string>;
-  onToggle: (item: RegistryItem) => void;
-}) {
-  const { data: items, isLoading } = useRegistryList(type);
-  const [search, setSearch] = useState("");
-
-  const filtered = useMemo(() => {
-    if (!items) return [];
-    if (!search) return items;
-    const q = search.toLowerCase();
-    return items.filter(
-      (item) =>
-        item.name.toLowerCase().includes(q) ||
-        (item.description?.toLowerCase().includes(q) ?? false),
-    );
-  }, [items, search]);
-
-  return (
-    <div className="space-y-3">
-      <div className="relative">
-        <Search className="absolute left-3 top-1/2 h-3.5 w-3.5 -translate-y-1/2 text-muted-foreground" />
-        <Input
-          placeholder={`Search ${type}...`}
-          value={search}
-          onChange={(e) => setSearch(e.target.value)}
-          className="h-8 pl-9 text-sm"
-        />
-      </div>
-      {isLoading ? (
-        <div className="flex items-center justify-center py-6 text-sm text-muted-foreground">
-          <Loader2 className="mr-2 h-4 w-4 animate-spin" />
-          Loading...
-        </div>
-      ) : filtered.length === 0 ? (
-        <p className="py-4 text-center text-sm text-muted-foreground">
-          {items?.length === 0 ? `No ${type} in registry yet` : "No matches found"}
-        </p>
-      ) : (
-        <div className="max-h-48 space-y-1 overflow-y-auto">
-          {filtered.map((item) => {
-            const isSelected = selected.has(item.id);
-            return (
-              <button
-                key={item.id}
-                type="button"
-                onClick={() => onToggle(item)}
-                className={`flex w-full items-center gap-3 rounded-md px-3 py-2 text-left text-sm transition-colors ${
-                  isSelected ? "bg-accent text-accent-foreground" : "hover:bg-muted/50"
-                }`}
-              >
-                <span className="min-w-0 flex-1">
-                  <span className="block truncate font-medium">{item.name}</span>
-                  {item.description && (
-                    <span className="block truncate text-xs text-muted-foreground">
-                      {item.description}
-                    </span>
-                  )}
-                </span>
-                {isSelected && (
-                  <span className="shrink-0 text-xs text-muted-foreground">Added</span>
-                )}
-              </button>
-            );
-          })}
-        </div>
-      )}
-    </div>
-  );
 }
 
 // ── Main Component ────────────────────────────────────────────────
@@ -207,13 +102,15 @@ export function AgentEditForm({
 }: AgentEditFormProps) {
   // Merge version-specific fields over base agent data
   const vd = versionDetail;
-  const initialDescription = (vd?.description as string) ?? agent.description ?? "";
-  const initialModelName = (vd?.model_name as string) ?? agent.model_name ?? "";
-  const initialPrompt = (vd?.prompt as string) ?? agent.prompt ?? "";
+  const initialDescription = vd?.description ?? agent.description ?? "";
+  const initialModelName = vd?.model_name ?? agent.model_name ?? "";
+  const initialModelsByIde = (vd?.models_by_harness ?? agent.models_by_harness ?? {}) as Record<string, string>;
+  const initialPrompt = vd?.prompt ?? agent.prompt ?? "";
 
   // ── Form state ───────────────────────────────────────────────
   const [description, setDescription] = useState(initialDescription);
   const [modelName, setModelName] = useState(initialModelName);
+  const [modelsByHarness, setModelsByIde] = useState<Record<string, string>>(initialModelsByIde);
   const [activeTab, setActiveTab] = useState<RegistryType>("mcps");
   const [selectedComponents, setSelectedComponents] = useState<
     Record<string, RegistryItem[]>
@@ -230,6 +127,7 @@ export function AgentEditForm({
   const initialStateRef = useRef({
     description: initialDescription,
     modelName: initialModelName,
+    modelsByHarness: initialModelsByIde,
     prompt: initialPrompt,
     selectedComponents: {} as Record<string, RegistryItem[]>,
   });
@@ -252,7 +150,10 @@ export function AgentEditForm({
         agent.name,
         currentVersion,
         versionDetail?.description,
+        versionDetail?.model_name,
+        versionDetail?.models_by_harness,
         versionDetail?.prompt,
+        versionDetail?.components,
       ]),
     [agent.name, currentVersion, versionDetail],
   );
@@ -261,9 +162,17 @@ export function AgentEditForm({
     // Reset description / modelName from latest props
     setDescription(initialDescription);
     setModelName(initialModelName);
+    setModelsByIde(initialModelsByIde);
 
-    // Load components from component_links / mcp_links
-    const links: ComponentLink[] = agent.component_links ?? agent.mcp_links ?? [];
+    const links: ComponentLink[] = versionDetail?.components
+      ? versionDetail.components.map((component) => ({
+          component_type: component.component_type,
+          component_id: component.component_id,
+          component_name: component.component_name,
+          mcp_name: component.mcp_name,
+          name: component.name,
+        }))
+      : (agent.component_links ?? agent.mcp_links ?? []);
     const grouped: Record<string, RegistryItem[]> = {
       mcps: [], skills: [], hooks: [], prompts: [], sandboxes: [],
     };
@@ -286,6 +195,7 @@ export function AgentEditForm({
     initialStateRef.current = {
       description: initialDescription,
       modelName: initialModelName,
+      modelsByHarness: initialModelsByIde,
       prompt: initialPrompt,
       selectedComponents: grouped,
     };
@@ -299,10 +209,11 @@ export function AgentEditForm({
     const dirty =
       description !== init.description ||
       modelName !== init.modelName ||
+      JSON.stringify(modelsByHarness) !== JSON.stringify(init.modelsByHarness) ||
       prompt !== init.prompt ||
       JSON.stringify(selectedComponents) !== JSON.stringify(init.selectedComponents);
     setIsDirty(dirty);
-  }, [description, modelName, prompt, selectedComponents]);
+  }, [description, modelName, modelsByHarness, prompt, selectedComponents]);
 
   // ── Debounced validation ──────────────────────────────────────
   useEffect(() => {
@@ -404,8 +315,9 @@ export function AgentEditForm({
       prompt: prompt.trim(),
       model_name: modelName,
       model_config_json: {},
+      models_by_harness: modelsByHarness,
       external_mcps: [],
-      supported_ides: agent.supported_ides ?? [],
+      supported_harnesses: agent.supported_harnesses ?? [],
       components: components.length > 0 ? components : [],
       yaml_snapshot: null,
       is_prerelease: false,
@@ -422,6 +334,7 @@ export function AgentEditForm({
       initialStateRef.current = {
         description,
         modelName,
+        modelsByHarness,
         prompt,
         selectedComponents,
       };
@@ -443,6 +356,7 @@ export function AgentEditForm({
       initialStateRef.current = {
         description,
         modelName,
+        modelsByHarness,
         prompt,
         selectedComponents,
       };
@@ -465,6 +379,7 @@ export function AgentEditForm({
     const init = initialStateRef.current;
     setDescription(init.description);
     setModelName(init.modelName);
+    setModelsByIde(init.modelsByHarness);
     setPrompt(init.prompt ?? "");
     setSelectedComponents(
       Object.keys(init.selectedComponents).length > 0
@@ -477,7 +392,7 @@ export function AgentEditForm({
 
   return (
     <div className="space-y-6">
-      {/* Agent name — read-only */}
+      {/* Agent name, read-only */}
       <section className="space-y-4">
         <div className="space-y-2">
           <Label htmlFor="agent-name" className="text-sm font-medium">
@@ -509,24 +424,13 @@ export function AgentEditForm({
           />
         </div>
 
-        <div className="space-y-2 max-w-xs">
-          <Label htmlFor="agent-model" className="text-sm font-medium">
-            Model
-          </Label>
-          <Input
-            id="agent-model"
-            list="edit-model-suggestions"
-            placeholder="claude-sonnet-4-20250514"
-            value={modelName}
-            onChange={(e) => setModelName(e.target.value)}
+        <div className="max-w-2xl">
+          <ModelPicker
+            modelName={modelName}
+            onModelNameChange={setModelName}
+            modelsByHarness={modelsByHarness}
+            onModelsByHarnessChange={setModelsByIde}
           />
-          <datalist id="edit-model-suggestions">
-            <option value="claude-opus-4-6-20250725" />
-            <option value="claude-sonnet-4-6-20250725" />
-            <option value="claude-sonnet-4-20250514" />
-            <option value="claude-opus-4-20250514" />
-            <option value="claude-haiku-4-5-20251001" />
-          </datalist>
         </div>
       </section>
 

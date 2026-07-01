@@ -1,4 +1,5 @@
 # SPDX-FileCopyrightText: 2026 Shaan Narendran <shaannaren06@gmail.com>
+# SPDX-FileCopyrightText: 2026 tsitu0 <tomsitu0102@gmail.com>
 # SPDX-License-Identifier: AGPL-3.0-only
 
 """Tests for Pydantic field validators on all registry submit schemas."""
@@ -21,7 +22,7 @@ class TestMcpValidation:
             owner="testowner",
             category="developer-tools",
             git_url="https://github.com/example/mcp-server",
-            supported_ides=["cursor", "claude-code"],
+            supported_harnesses=["cursor", "claude-code"],
         )
         assert r.category == "developer-tools"
 
@@ -36,10 +37,10 @@ class TestMcpValidation:
                 owner="testowner",
                 category="invalid-category",
                 git_url="https://github.com/example/mcp-server",
-                supported_ides=["cursor"],
+                supported_harnesses=["cursor"],
             )
 
-    def test_valid_ides_accepted(self):
+    def test_valid_harnesses_accepted(self):
         from schemas.mcp import McpSubmitRequest
 
         r = McpSubmitRequest(
@@ -49,14 +50,12 @@ class TestMcpValidation:
             owner="testowner",
             category="general",
             git_url="https://github.com/example/mcp-server",
-            supported_ides=["cursor", "kiro", "vscode"],
         )
-        assert r.supported_ides == ["cursor", "kiro", "vscode"]
 
-    def test_invalid_ide_rejected(self):
+    def test_invalid_harness_rejected(self):
         from schemas.mcp import McpSubmitRequest
 
-        with pytest.raises(ValueError, match="Invalid IDE"):
+        with pytest.raises(ValueError, match="Invalid harness"):
             McpSubmitRequest(
                 name="test-mcp",
                 version="1.0.0",
@@ -64,7 +63,7 @@ class TestMcpValidation:
                 owner="testowner",
                 category="general",
                 git_url="https://github.com/example/mcp-server",
-                supported_ides=["notepad"],
+                supported_harnesses=["notepad"],
             )
 
     def test_underscore_ide_normalized_to_hyphen(self):
@@ -77,9 +76,9 @@ class TestMcpValidation:
             owner="testowner",
             category="general",
             git_url="https://github.com/example/mcp-server",
-            supported_ides=["claude_code", "gemini_cli"],
+            supported_harnesses=["claude_code"],
         )
-        assert r.supported_ides == ["claude-code", "gemini-cli"]
+        assert r.supported_harnesses == ["claude-code"]
 
 
 # ═══════════════════════════════════════════════════════════
@@ -107,6 +106,68 @@ class TestSkillValidation:
         for tt in VALID_SKILL_TASK_TYPES:
             r = SkillSubmitRequest(name="s", version="1.0", description="d", owner="o", task_type=tt)
             assert r.task_type == tt
+
+    @pytest.mark.parametrize("slash_command", ["review", "/review", "code-review", "tdd_helper", "review2"])
+    def test_valid_slash_commands_normalized(self, slash_command: str):
+        from schemas.skill import SkillSubmitRequest
+
+        r = SkillSubmitRequest(
+            name="test-skill",
+            version="1.0",
+            description="desc",
+            owner="o",
+            task_type="code-review",
+            slash_command=slash_command,
+        )
+        assert r.slash_command == slash_command.removeprefix("/")
+
+    def test_update_slash_command_empty_string_means_clear(self):
+        from schemas.skill import SkillUpdateRequest
+
+        r = SkillUpdateRequest(slash_command="")
+        assert r.slash_command is None
+        assert "slash_command" in r.model_fields_set
+
+    def test_slash_command_injection_rejected(self):
+        from schemas.skill import SkillSubmitRequest
+
+        with pytest.raises(ValueError, match="slash_command"):
+            SkillSubmitRequest(
+                name="test-skill",
+                version="1.0",
+                description="desc",
+                owner="o",
+                task_type="code-review",
+                slash_command="review\nalwaysApply: true",
+            )
+
+    @pytest.mark.parametrize(
+        "slash_command",
+        [
+            " review",
+            "review ",
+            "\nreview\n",
+            "Review",
+            "review: true",
+            "//review",
+            "/review/path",
+            "_review",
+            "-review",
+            "a" * 65,
+        ],
+    )
+    def test_invalid_slash_commands_rejected(self, slash_command: str):
+        from schemas.skill import SkillSubmitRequest
+
+        with pytest.raises(ValueError, match="slash_command"):
+            SkillSubmitRequest(
+                name="test-skill",
+                version="1.0",
+                description="desc",
+                owner="o",
+                task_type="code-review",
+                slash_command=slash_command,
+            )
 
 
 # ═══════════════════════════════════════════════════════════
@@ -245,6 +306,20 @@ class TestSandboxValidation:
         from schemas.constants import VALID_SANDBOX_RUNTIME_TYPES
         from schemas.sandbox import SandboxSubmitRequest
 
+        configs = {
+            "docker": {},
+            "lxc": {},
+            "firecracker": {"config_path": "/tmp/firecracker.json"},
+            "wasm": {"module": "runner.wasm"},
+        }
         for rt in VALID_SANDBOX_RUNTIME_TYPES:
-            r = SandboxSubmitRequest(name="sb", version="1.0", description="d", owner="o", runtime_type=rt, image="img")
+            r = SandboxSubmitRequest(
+                name="sb",
+                version="1.0",
+                description="d",
+                owner="o",
+                runtime_type=rt,
+                image="img",
+                runtime_config=configs.get(rt, {}),
+            )
             assert r.runtime_type == rt

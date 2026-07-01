@@ -17,7 +17,10 @@ from models.mcp import ListingStatus
 
 class SandboxListing(Base):
     __tablename__ = "sandbox_listings"
-    __table_args__ = (Index("ix_sandbox_listings_submitted_by", "submitted_by"),)
+    __table_args__ = (
+        UniqueConstraint("name", name="uq_sandbox_listings_name"),
+        Index("ix_sandbox_listings_submitted_by", "submitted_by"),
+    )
 
     id: Mapped[uuid.UUID] = mapped_column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
     name: Mapped[str] = mapped_column(String(255), nullable=False)
@@ -30,6 +33,7 @@ class SandboxListing(Base):
         UUID(as_uuid=True), ForeignKey("component_bundles.id"), nullable=True
     )
     submitted_by: Mapped[uuid.UUID] = mapped_column(UUID(as_uuid=True), ForeignKey("users.id"), nullable=False)
+    co_authors: Mapped[list] = mapped_column(JSON, default=list)
     unique_agents: Mapped[int] = mapped_column(Integer, default=0)
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=lambda: datetime.now(UTC))
     updated_at: Mapped[datetime] = mapped_column(
@@ -52,7 +56,7 @@ class SandboxListing(Base):
     )
 
     # ------------------------------------------------------------------
-    # Deprecated compatibility properties — delegate to latest_version.
+    # Deprecated compatibility properties - delegate to latest_version.
     # ------------------------------------------------------------------
     @property
     def version(self) -> str:
@@ -99,14 +103,14 @@ class SandboxListing(Base):
         return self.latest_version.download_count if self.latest_version else 0
 
     @property
-    def supported_ides(self) -> list:
-        return self.latest_version.supported_ides if self.latest_version else []
+    def supported_harnesses(self) -> list:
+        return self.latest_version.supported_harnesses if self.latest_version else []
 
-    @supported_ides.setter
-    def supported_ides(self, value: list) -> None:
+    @supported_harnesses.setter
+    def supported_harnesses(self, value: list) -> None:
         if not self.latest_version:
-            raise RuntimeError(f"{type(self).__name__} has no latest_version; cannot set supported_ides")
-        self.latest_version.supported_ides = value
+            raise RuntimeError(f"{type(self).__name__} has no latest_version; cannot set supported_harnesses")
+        self.latest_version.supported_harnesses = value
 
     @property
     def git_url(self) -> str | None:
@@ -119,6 +123,16 @@ class SandboxListing(Base):
         self.latest_version.source_url = value
 
     @property
+    def source_url(self) -> str | None:
+        return self.latest_version.source_url if self.latest_version else None
+
+    @source_url.setter
+    def source_url(self, value: str | None) -> None:
+        if not self.latest_version:
+            raise RuntimeError(f"{type(self).__name__} has no latest_version; cannot set source_url")
+        self.latest_version.source_url = value
+
+    @property
     def git_ref(self) -> str | None:
         return self.latest_version.source_ref if self.latest_version else None
 
@@ -127,6 +141,26 @@ class SandboxListing(Base):
         if not self.latest_version:
             raise RuntimeError(f"{type(self).__name__} has no latest_version; cannot set git_ref")
         self.latest_version.source_ref = value
+
+    @property
+    def source_ref(self) -> str | None:
+        return self.latest_version.source_ref if self.latest_version else None
+
+    @source_ref.setter
+    def source_ref(self, value: str | None) -> None:
+        if not self.latest_version:
+            raise RuntimeError(f"{type(self).__name__} has no latest_version; cannot set source_ref")
+        self.latest_version.source_ref = value
+
+    @property
+    def resolved_sha(self) -> str | None:
+        return self.latest_version.resolved_sha if self.latest_version else None
+
+    @resolved_sha.setter
+    def resolved_sha(self, value: str | None) -> None:
+        if not self.latest_version:
+            raise RuntimeError(f"{type(self).__name__} has no latest_version; cannot set resolved_sha")
+        self.latest_version.resolved_sha = value
 
     @property
     def runtime_type(self) -> str:
@@ -149,16 +183,6 @@ class SandboxListing(Base):
         self.latest_version.image = value
 
     @property
-    def dockerfile_url(self) -> str | None:
-        return self.latest_version.dockerfile_url if self.latest_version else None
-
-    @dockerfile_url.setter
-    def dockerfile_url(self, value: str | None) -> None:
-        if not self.latest_version:
-            raise RuntimeError(f"{type(self).__name__} has no latest_version; cannot set dockerfile_url")
-        self.latest_version.dockerfile_url = value
-
-    @property
     def resource_limits(self) -> dict:
         return self.latest_version.resource_limits if self.latest_version else {}
 
@@ -179,24 +203,24 @@ class SandboxListing(Base):
         self.latest_version.network_policy = value
 
     @property
-    def allowed_mounts(self) -> list:
-        return self.latest_version.allowed_mounts if self.latest_version else []
+    def sandbox_path(self) -> str | None:
+        return self.latest_version.sandbox_path if self.latest_version else None
 
-    @allowed_mounts.setter
-    def allowed_mounts(self, value: list) -> None:
+    @sandbox_path.setter
+    def sandbox_path(self, value: str | None) -> None:
         if not self.latest_version:
-            raise RuntimeError(f"{type(self).__name__} has no latest_version; cannot set allowed_mounts")
-        self.latest_version.allowed_mounts = value
+            raise RuntimeError(f"{type(self).__name__} has no latest_version; cannot set sandbox_path")
+        self.latest_version.sandbox_path = value
 
     @property
-    def env_vars(self) -> dict:
-        return self.latest_version.env_vars if self.latest_version else {}
+    def validated_at(self):
+        return self.latest_version.validated_at if self.latest_version else None
 
-    @env_vars.setter
-    def env_vars(self, value: dict) -> None:
+    @validated_at.setter
+    def validated_at(self, value) -> None:
         if not self.latest_version:
-            raise RuntimeError(f"{type(self).__name__} has no latest_version; cannot set env_vars")
-        self.latest_version.env_vars = value
+            raise RuntimeError(f"{type(self).__name__} has no latest_version; cannot set validated_at")
+        self.latest_version.validated_at = value
 
     @property
     def entrypoint(self) -> str | None:
@@ -208,6 +232,16 @@ class SandboxListing(Base):
             raise RuntimeError(f"{type(self).__name__} has no latest_version; cannot set entrypoint")
         self.latest_version.entrypoint = value
 
+    @property
+    def runtime_config(self) -> dict:
+        return self.latest_version.runtime_config if self.latest_version else {}
+
+    @runtime_config.setter
+    def runtime_config(self, value: dict) -> None:
+        if not self.latest_version:
+            raise RuntimeError(f"{type(self).__name__} has no latest_version; cannot set runtime_config")
+        self.latest_version.runtime_config = value
+
 
 class SandboxDownload(Base):
     __tablename__ = "sandbox_downloads"
@@ -215,7 +249,7 @@ class SandboxDownload(Base):
     id: Mapped[uuid.UUID] = mapped_column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
     listing_id: Mapped[uuid.UUID] = mapped_column(UUID(as_uuid=True), ForeignKey("sandbox_listings.id"), nullable=False)
     user_id: Mapped[uuid.UUID] = mapped_column(UUID(as_uuid=True), ForeignKey("users.id"), nullable=False)
-    ide: Mapped[str] = mapped_column(String(50), nullable=False)
+    harness: Mapped[str] = mapped_column(String(50), nullable=False)
     downloaded_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=lambda: datetime.now(UTC))
 
 
@@ -245,15 +279,16 @@ class SandboxVersion(Base):
     reviewed_by: Mapped[uuid.UUID | None] = mapped_column(UUID(as_uuid=True), ForeignKey("users.id"), nullable=True)
     reviewed_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=lambda: datetime.now(UTC))
-    supported_ides: Mapped[list] = mapped_column(JSON, default=list)
+    supported_harnesses: Mapped[list] = mapped_column(JSON, default=list)
     runtime_type: Mapped[str] = mapped_column(String(20), nullable=False)
     image: Mapped[str] = mapped_column(String(500), nullable=False)
-    dockerfile_url: Mapped[str | None] = mapped_column(String(500), nullable=True)
     resource_limits: Mapped[dict] = mapped_column(JSON, default=dict)
     network_policy: Mapped[str] = mapped_column(String(20), default="none")
-    allowed_mounts: Mapped[list] = mapped_column(JSON, default=list)
-    env_vars: Mapped[dict] = mapped_column(JSON, default=dict)
     entrypoint: Mapped[str | None] = mapped_column(String(500), nullable=True)
+    runtime_config: Mapped[dict] = mapped_column(JSON, default=dict)
+    # New: monorepo path + validation
+    sandbox_path: Mapped[str | None] = mapped_column(String(500), nullable=True)
+    validated_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
     is_editing: Mapped[bool] = mapped_column(Boolean, default=False)
     editing_since: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
     editing_by: Mapped[uuid.UUID | None] = mapped_column(UUID(as_uuid=True), ForeignKey("users.id"), nullable=True)

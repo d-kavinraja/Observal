@@ -5,7 +5,9 @@ import { test, expect } from "@playwright/test";
 import { execSync } from "child_process";
 
 const CLI_TIMEOUT = 30_000;
-const CWD = "/home/haz3/code/blazeup/Observal";
+const CWD = execSync("git rev-parse --show-toplevel", {
+  encoding: "utf-8",
+}).trim();
 
 function run(cmd: string): string {
   return execSync(cmd, { encoding: "utf-8", timeout: CLI_TIMEOUT, cwd: CWD });
@@ -15,7 +17,7 @@ test.describe("Kiro CLI Commands", () => {
   test.beforeAll(() => {
     try {
       execSync(
-        'observal auth login --server http://localhost:8000 --email admin@demo.example --password admin-changeme 2>&1',
+        'observal auth login --server http://localhost --email admin@demo.example --password admin-changeme 2>&1',
         { encoding: "utf-8", timeout: CLI_TIMEOUT, cwd: CWD },
       );
     } catch {
@@ -23,23 +25,23 @@ test.describe("Kiro CLI Commands", () => {
     }
   });
 
-  test("observal doctor --ide kiro runs without errors", () => {
-    const output = run("observal doctor --ide kiro 2>&1 || true");
+  test("observal doctor --harness kiro runs without errors", () => {
+    const output = run("observal doctor --harness kiro 2>&1 || true");
     // Doctor should run and produce output (may have warnings, but shouldn't crash)
     expect(output).toBeTruthy();
     expect(output).not.toContain("Traceback");
     expect(output).not.toContain("TypeError");
   });
 
-  test("observal scan --ide kiro shows read-only inventory", () => {
-    const output = run("observal scan --ide kiro 2>&1 || true");
+  test("observal scan --harness kiro shows read-only inventory", () => {
+    const output = run("observal scan --harness kiro 2>&1 || true");
     expect(output).not.toContain("Traceback");
     // Should discover Kiro agents from ~/.kiro/agents/
     expect(output).toMatch(/Agents/);
     expect(output).toMatch(/coder|backend|frontend/i);
   });
 
-  test("observal scan shows components from multiple IDEs", () => {
+  test("observal scan shows components from multiple harnesses", () => {
     const output = run("observal scan 2>&1 || true");
     expect(output).not.toContain("Traceback");
     const clean = output.replace(/\x1b\[[0-9;]*m/g, "");
@@ -47,13 +49,13 @@ test.describe("Kiro CLI Commands", () => {
     expect(clean).toMatch(/kiro/i);
   });
 
-  test("observal doctor patch --hook --ide kiro --dry-run previews changes", () => {
-    const output = run("observal doctor patch --hook --ide kiro --dry-run 2>&1 || true");
+  test("observal doctor patch --hook --harness kiro --dry-run previews changes", () => {
+    const output = run("observal doctor patch --hook --harness kiro --dry-run 2>&1 || true");
     expect(output).not.toContain("Traceback");
     expect(output).toMatch(/Dry run|Would/i);
   });
 
-  test("observal pull --ide kiro --dry-run generates Kiro config", () => {
+  test("observal pull --harness kiro --dry-run generates Kiro config", () => {
     // Get an agent to pull
     let agents: { id?: string; name?: string }[];
     try {
@@ -71,7 +73,7 @@ test.describe("Kiro CLI Commands", () => {
     run("mkdir -p /tmp/kiro-e2e-pull");
 
     const output = run(
-      `observal pull ${agentId} --ide kiro --dir /tmp/kiro-e2e-pull --dry-run 2>&1 || true`,
+      `observal pull ${agentId} --harness kiro --dir /tmp/kiro-e2e-pull --dry-run 2>&1 || true`,
     );
     expect(output).not.toContain("Traceback");
 

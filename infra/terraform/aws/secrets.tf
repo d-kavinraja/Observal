@@ -31,12 +31,14 @@ resource "random_password" "grafana_admin" {
 #      logic that splices passwords into URLs at container start.
 
 locals {
-  raw_secrets = {
-    "DB_PASSWORD"            = random_password.db.result
-    "CLICKHOUSE_PASSWORD"    = local.clickhouse_self_hosted ? random_password.clickhouse.result : var.clickhouse_cloud_password
-    "SECRET_KEY"             = random_password.secret_key.result
-    "GRAFANA_ADMIN_PASSWORD" = random_password.grafana_admin.result
-  }
+  raw_secrets = merge(
+    {
+      "DB_PASSWORD"         = random_password.db.result
+      "CLICKHOUSE_PASSWORD" = local.clickhouse_self_hosted ? random_password.clickhouse.result : var.clickhouse_cloud_password
+      "SECRET_KEY"          = random_password.secret_key.result
+    },
+    local.observability_grafana_enabled ? { "GRAFANA_ADMIN_PASSWORD" = random_password.grafana_admin.result } : {}
+  )
 
   derived_urls = {
     "DATABASE_URL"   = "postgresql+asyncpg://observal:${random_password.db.result}@${aws_db_instance.postgres.address}:${aws_db_instance.postgres.port}/observal"
@@ -63,4 +65,16 @@ resource "aws_ssm_parameter" "urls" {
   value = each.value
 
   tags = { Name = "${local.name}-${lower(each.key)}" }
+}
+
+# ── License key (enterprise only) ────────────────────────────────────────
+
+resource "aws_ssm_parameter" "license_key" {
+  count = local.is_enterprise ? 1 : 0
+
+  name  = "${local.ssm_prefix}/OBSERVAL_LICENSE_KEY"
+  type  = "SecureString"
+  value = var.observal_license_key
+
+  tags = { Name = "${local.name}-license-key" }
 }

@@ -1,7 +1,6 @@
 // SPDX-FileCopyrightText: 2026 Shreem Seth <shreemseth26@gmail.com>
 // SPDX-License-Identifier: AGPL-3.0-only
 
-"use client";
 
 import { useCallback, useSyncExternalStore } from "react";
 import { Star, X } from "lucide-react";
@@ -30,7 +29,7 @@ export function GitHubStarBanner() {
   return (
     <div className="group/star flex items-center gap-1.5 rounded-md border border-border px-2 py-1 text-xs text-muted-foreground transition-colors hover:text-foreground">
       <a
-        href="https://github.com/BlazeUp-AI/Observal"
+        href="https://github.com/Observal/Observal"
         target="_blank"
         rel="noopener noreferrer"
         className="flex items-center gap-1.5"

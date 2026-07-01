@@ -3,107 +3,148 @@
 
 # Web Frontend
 
-Next.js 16 / React 19 / TypeScript 6 / Tailwind CSS 4 / Playwright 1.59
+Vite 6 / React 19 / TypeScript 6 / TanStack Router / Tailwind CSS 4 / Playwright 1.59
 
-## Stack
+## How users interact with it
 
-- **Framework:** Next.js 16 with `output: "standalone"` for Docker
-- **UI:** shadcn/ui (`src/components/ui/`), Recharts 3 for charts, TanStack Query for data fetching, TanStack Table for sortable/filterable tables
-- **Design system:** OKLCH color space with 5 themes (light, dark, midnight, forest, sunset). Typography: Archivo (display), Albert Sans (body), JetBrains Mono (code). 4pt spacing scale. Defined in `globals.css`.
-- **API proxy:** Next.js rewrites (`/api/v1/*` → backend). Backend URL via `NEXT_PUBLIC_API_URL` (defaults `http://localhost:8000`).
-- **Auth:** API key + user role in localStorage. Client-side guards (AuthGuard, AdminGuard, RoleGuard), not middleware.
-- **GraphQL:** `/api/v1/graphql` is the read layer for telemetry. REST for everything else. WebSocket subscriptions via `src/lib/graphql-ws.ts`.
+The web UI is one of three ways to interact with Observal, alongside the CLI and the bundled observal skill. It covers:
+
+- **Browsing and installing agents** from the registry
+- **Viewing session traces** with conversation replay, span tree, and token counts
+- **Admin operations** such as review queue, user management, insights, and audit logs
+- **Agent building** with component assembly and live YAML preview
+
+## Stack decisions
+
+| Concern | Choice | Why |
+|---------|--------|-----|
+| Framework | Vite SPA with TanStack Router | Static Docker asset, simple split from FastAPI |
+| UI primitives | shadcn/ui | Composable, accessible, themeable |
+| Data fetching | TanStack Query via `use-api.ts` | Caching, deduplication, mutations |
+| Tables | TanStack Table | Sort, filter, pagination built-in |
+| Charts | Recharts 3 | Simple, works with OKLCH tokens |
+| Auth storage | Current code uses sessionStorage for access token, localStorage for refresh token and profile cache | Documents existing behavior. Do not add new auth localStorage use unless intentionally changing the auth model. |
+| API proxy | Vite dev proxy and nginx in Docker | Single origin for `/api/v1/*`, no CORS in prod |
+| Fonts | Local files only | No Google Fonts CDN calls |
+| Design tokens | OKLCH in `app.css` | Perceptually uniform themes |
+| Harness list | Server-fetched (`/api/v1/config/harnesses`) | Never hardcoded in frontend |
+
+## Design system
+
+OKLCH color space with semantic tokens: `background`, `foreground`, `card`, `border`, `primary`, `secondary`, `accent`, `destructive`, `success`, `warning`, `info`.
+
+Themes include light, dark, midnight, forest, sunset, solarized, dracula, nord, monokai, gruvbox, catppuccin, tokyo night, one dark, and rose pine. Tokens are defined in `app.css` and switched by `ThemeProvider` in `src/lib/theme.tsx`.
+
+Typography uses local fonts only. Tailwind CSS 4 reads tokens directly from CSS.
 
 ## Route groups
 
+TanStack Router file routes live in `src/routes/`. Several routes lazy-load page modules from `src/pages/` while the migration from page components to route files continues.
+
 ```
-src/app/
-├── (auth)/login/               # Login + first-run admin init
-├── (registry)/                 # Public agent browser (requires auth)
-│   ├── page.tsx                #   Registry home (search, trending, top rated)
-│   ├── agents/page.tsx         #   Agent list with search + filters
-│   ├── agents/[id]/page.tsx    #   Agent detail with pull command box
-│   ├── agents/builder/page.tsx #   Agent builder (two-column, component selector, YAML preview)
-│   ├── agents/leaderboard/page.tsx #   Agent leaderboard rankings
-│   ├── components/page.tsx     #   Tabbed component browser (MCPs, skills, hooks, prompts, sandboxes)
-│   └── components/[id]/page.tsx#   Component detail
-├── (admin)/                    # Admin dashboard (requires admin role)
-│   ├── dashboard/page.tsx      #   Overview stats, recent agents, latest traces
-│   ├── review/page.tsx         #   Review queue with detail sheet
-│   ├── users/page.tsx          #   User management
-│   ├── settings/page.tsx       #   Enterprise settings
-│   ├── eval/page.tsx           #   Eval overview with agent scores
-│   ├── eval/[agentId]/page.tsx #   Eval detail (aggregate chart, dimension radar, penalty accordion)
-│   └── errors/page.tsx         #   Error log viewer
-└── (user)/                     # User-scoped views (requires auth)
-    ├── traces/page.tsx         #   User trace list with filtering
-    └── traces/[id]/page.tsx    #   Trace detail (resizable span tree + JSON viewer)
+src/routes/
+├── (auth)/                         # Unauthenticated
+│   ├── login.tsx                   #   Login and first-run admin init
+│   ├── register.tsx                #   User registration
+│   └── device.tsx                  #   Device authorization
+├── _authed.tsx                     # Authenticated layout and guard
+├── _authed/
+│   ├── index.tsx                   #   Registry home
+│   ├── agents/
+│   │   ├── index.tsx               #   Agent list
+│   │   ├── $agentId.tsx            #   Agent detail
+│   │   ├── builder.tsx             #   Agent builder
+│   │   └── $agentId/insights/$reportId.tsx
+│   ├── components/
+│   │   ├── index.tsx               #   Component browser
+│   │   └── $componentId.tsx        #   Component detail
+│   ├── leaderboard.tsx             #   Agent leaderboard
+│   ├── insights/$reportId.tsx      #   Insight report detail
+│   ├── wiki/index.tsx              #   Wiki/help content
+│   ├── _admin.tsx                  #   Admin layout and guard
+│   ├── _admin/
+│   │   ├── dashboard.tsx
+│   │   ├── review.tsx
+│   │   ├── settings.tsx
+│   │   ├── sso.tsx
+│   │   ├── users.tsx
+│   │   ├── audit-log.tsx
+│   │   ├── security-events.tsx
+│   │   └── diagnostics.tsx
+│   ├── _user.tsx                   #   User layout
+│   └── _user/
+│       ├── account.tsx
+│       └── traces/
+│           ├── index.tsx
+│           └── $traceId.tsx
+└── __root.tsx                      # Query client, theme provider, error boundary
 ```
 
-## Component directories
+## Key directories
 
 ```
 src/components/
-├── builder/       # Agent builder (preview panel, sortable component list, validation panel)
+├── builder/       # model-picker, preview-panel, sortable-component-list, validation-panel
 ├── dashboard/     # Stat cards, trend charts, bar lists, heatmap, time range select
 ├── layouts/       # AuthGuard, AdminGuard, RoleGuard, DashboardShell, PageHeader
-├── nav/           # RegistrySidebar, CommandMenu (Cmd+K), NavUser, GitHubStarBanner
-├── registry/      # AgentCard, AgentEditForm, ComponentCard, ComponentEditForm, PullCommand, InstallDialog, StatusBadge, SubmitComponentDialog, RegistryTable, RegistryDetail, ReviewForm, MetricsPanel, FeedbackList, IdeBadges, VersionBumpDialog, VersionDropdown
+├── nav/           # RegistrySidebar, CommandMenu, NavUser, GitHubStarBanner
+├── registry/      # AgentCard, AgentEditForm, ComponentCard, ComponentEditForm, PullCommand,
+│                  # StatusBadge, SubmitComponentDialog, ReviewForm, HarnessBadges
 ├── review/        # ReviewDetailSheet, ValidationBadges
 ├── shared/        # SkeletonLayouts, ErrorState, EmptyState
 ├── traces/        # TraceList, TraceDetail, SpanTree
-└── ui/            # shadcn/ui primitives (27 components)
+└── ui/            # shadcn/ui primitives
+
+src/pages/         # Lazy-loaded page components used by route files
+src/routes/        # TanStack Router file routes
+src/hooks/         # TanStack Query hooks and auth guards
+src/lib/           # API wrapper, types, query client, theme, GraphQL WS
 ```
 
 ## Key files
 
-- `src/lib/api.ts` : Typed fetch wrapper; all REST + GraphQL calls; auth via localStorage
-- `src/lib/types.ts` : Shared TypeScript interfaces for all API responses
-- `src/lib/graphql-ws.ts` : GraphQL WebSocket subscription client
-- `src/lib/ide-features.ts` : IDE feature detection utilities
-- `src/lib/query-client.ts` : TanStack Query client configuration
-- `src/lib/utils.ts` : Shared utility functions
-- `src/lib/export.ts` : Data export utilities
-- `src/hooks/use-api.ts` : TanStack Query hooks for every endpoint (queries + mutations)
-- `src/hooks/use-auth.ts` : Auth guard hook (checks API key exists)
-- `src/hooks/use-admin-guard.ts` : Admin role check hook
-- `src/hooks/use-role-guard.ts` : Generic role check hook
-- `src/hooks/use-deployment-config.ts` : Deployment config fetcher (endpoint discovery)
-- `src/hooks/use-mobile.ts` : Mobile viewport detection
-- `src/components/registry/component-edit-form.tsx` : Unified component editor (hook, skill, prompt, MCP, sandbox type-specific forms)
-- `src/components/registry/version-bump-dialog.tsx` : Semver version bump dialog for publishing new versions
-- `src/components/registry/version-dropdown.tsx` : Version selector dropdown with status badges
-- `src/components/registry/agent-edit-form.tsx` : Agent editor with goal template and component selector
-- `next.config.ts` : API rewrites, standalone output
-- `playwright.config.ts` : E2E test config (Chromium, port 3000)
+- `src/lib/api.ts`: typed fetch wrapper and current auth storage helpers
+- `src/lib/types.ts`: shared TypeScript interfaces for API responses
+- `src/lib/graphql-ws.ts`: GraphQL WebSocket subscription client
+- `src/lib/harness-capabilities.ts`: harness capability detection
+- `src/lib/query-client.ts`: TanStack Query client config
+- `src/lib/theme.tsx`: theme provider and storage
+- `src/hooks/use-api.ts`: TanStack Query hook exports for endpoints
+- `src/hooks/use-auth.ts`: auth guard and optional auth helper
+- `src/hooks/use-deployment-config.ts`: feature flags and license status
+- `src/hooks/use-harnesses.ts`: harness list from server
+- `vite.config.ts`: Vite build, chunks, and dev proxy
+
+## Coding patterns
+
+**Data fetching:** Always use hooks from `use-api.ts`. Never call `fetch` directly in components unless the endpoint is not covered yet and the smallest change is local. Prefer adding a hook for reusable endpoints.
+
+**Types:** API response types live in `src/lib/types.ts`. Do not define inline types for API data that is shared by multiple components. If a new endpoint is added, add its types there.
+
+**Feature gating:** Enterprise features are gated server-side. The API returns 403 for unlicensed features. The frontend reads `useDeploymentConfig()` for display decisions, but never trusts the client to enforce access.
+
+**Harness list:** Fetched from `/api/v1/config/harnesses` via `useHarnesses()`. Never hardcode harness names or capabilities in the frontend. The server is the single source of truth.
+
+**Auth state:** Current implementation stores `observal_access_token` in sessionStorage. It stores `observal_refresh_token` and cached user role/profile fields in localStorage so refresh and nav state survive reloads and new tabs. Treat this as existing behavior, not a pattern to expand. If changing auth storage, migrate deliberately and update this file in the same PR.
+
+**Theming:** Use semantic tokens such as `var(--primary)` and `var(--destructive)`. Never use raw color values in components. Theme tokens live in `app.css`.
 
 ## Commands
 
 ```bash
-pnpm dev          # dev server on :3000
-pnpm build        # production build
+pnpm dev          # Vite dev server on :3000
+pnpm build        # Typecheck and production build
 pnpm lint         # ESLint
-pnpm test:e2e     # Playwright e2e tests (requires running API + Docker stack)
-# E2E specs live in web/e2e/*.spec.ts (16 spec files)
+pnpm typecheck    # TypeScript only
+pnpm e2e          # Playwright, requires running Docker stack
+pnpm e2e:kiro     # Kiro-specific e2e tests
+pnpm e2e:ui       # Playwright UI mode
 ```
 
-## Enterprise feature gating
+E2E specs live in `tests/e2e/*.spec.ts` in the repo root workspace.
 
-There is NO `web/ee/` directory. Enterprise frontend code lives here in `web/src/`, gated server-side via `useDeploymentConfig()`. This follows the Langfuse/PostHog/Infisical pattern — the `ee/` boundary is backend-only.
+## Enterprise in the frontend
 
-**Current enterprise conditionals:**
-- `src/app/(auth)/login/page.tsx` — SSO button shown when `ssoEnabled`
-- `src/app/(admin)/settings/page.tsx` — enterprise settings section shown when `deploymentMode === "enterprise"`
-- `src/hooks/use-deployment-config.ts` — fetches `{ deploymentMode, ssoEnabled, samlEnabled }` from `/api/v1/config/public`
+There is no `web/ee/` directory. Enterprise pages live in normal route and page directories alongside core pages. They call license-gated API endpoints. If the feature is not licensed, the server returns 403 and the frontend shows an upgrade prompt.
 
-**Pattern for new enterprise pages:** Add regular pages in `src/app/(admin)/` that check deployment mode and show an upgrade prompt when not enterprise. Don't duplicate pages or create separate directories.
-
-**Future resource-based access control:** API will include `user_access_level` on response objects (PostHog annotation pattern). Frontend reads the annotation — no client-side policy engine needed.
-
-## Conventions
-
-- No Tailwind config file — Tailwind CSS 4 uses `globals.css` for all design tokens
-- Theme switching via `src/components/ui/theme-switcher.tsx`
-- All API response types are centralized in `src/lib/types.ts` — don't define inline types for API data
-- Use TanStack Query hooks from `src/hooks/use-api.ts` for data fetching — don't call `fetch` directly in components
-- Semantic color tokens: background, foreground, card, border, primary, secondary, accent, destructive, success, warning, info
+This follows the Langfuse/PostHog pattern: the `ee/` boundary is backend-only. The frontend is AGPL and gates features server-side.

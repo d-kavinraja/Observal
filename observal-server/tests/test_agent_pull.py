@@ -52,11 +52,11 @@ def _make_version(
     v.model_name = "claude-3-5-sonnet"
     v.model_config_json = {}
     v.external_mcps = []
-    v.supported_ides = ["claude-code"]
-    v.required_ide_features = []
-    v.inferred_supported_ides = ["claude-code"]
+    v.supported_harnesses = ["claude-code"]
+    v.required_capabilities = []
+    v.inferred_supported_harnesses = ["claude-code"]
     v.yaml_snapshot = None
-    v.ide_configs = None
+    v.harness_configs = None
     v.status = status
     v.is_prerelease = False
     v.rejection_reason = None
@@ -72,7 +72,6 @@ def _make_version(
 
 def _make_agent(owner_id: uuid.UUID | None = None, *, with_approved_version: bool = True):
     """Build a mock Agent.  If with_approved_version=True, attach an approved version."""
-    from models.agent import AgentVisibility
 
     owner_id = owner_id or uuid.uuid4()
     agent = MagicMock()
@@ -81,9 +80,7 @@ def _make_agent(owner_id: uuid.UUID | None = None, *, with_approved_version: boo
     agent.owner = "testuser"
     agent.created_by = owner_id
     agent.owner_org_id = None
-    agent.co_maintainers = []
-    agent.team_accesses = []
-    agent.visibility = AgentVisibility.public
+    agent.co_authors = []
 
     if with_approved_version:
         ver = _make_version(agent.id)
@@ -97,9 +94,9 @@ def _make_agent(owner_id: uuid.UUID | None = None, *, with_approved_version: boo
         agent.model_name = ver.model_name
         agent.model_config_json = ver.model_config_json
         agent.external_mcps = ver.external_mcps
-        agent.supported_ides = ver.supported_ides
-        agent.required_ide_features = ver.required_ide_features
-        agent.inferred_supported_ides = ver.inferred_supported_ides
+        agent.supported_harnesses = ver.supported_harnesses
+        agent.required_capabilities = ver.required_capabilities
+        agent.inferred_supported_harnesses = ver.inferred_supported_harnesses
         agent.status = AgentStatus.approved
         agent.rejection_reason = None
         agent.components = []
@@ -113,9 +110,9 @@ def _make_agent(owner_id: uuid.UUID | None = None, *, with_approved_version: boo
         agent.model_name = ""
         agent.model_config_json = {}
         agent.external_mcps = []
-        agent.supported_ides = []
-        agent.required_ide_features = []
-        agent.inferred_supported_ides = []
+        agent.supported_harnesses = []
+        agent.required_capabilities = []
+        agent.inferred_supported_harnesses = []
         agent.status = AgentStatus.draft
         agent.rejection_reason = None
         agent.components = []
@@ -153,7 +150,7 @@ def test_agent_response_schema_has_latest_version_field():
 
 def test_agent_to_response_populates_latest_approved_version():
     """_agent_to_response must set latest_approved_version from agent.versions."""
-    from api.routes.agent import _agent_to_response
+    from api.routes.agent.helpers import _agent_to_response
 
     agent = _make_agent(with_approved_version=True)
     # Ensure the approved version is in agent.versions list
@@ -172,7 +169,7 @@ def test_agent_to_response_populates_latest_approved_version():
 
 def test_agent_to_response_latest_approved_version_none_when_no_approved():
     """_agent_to_response sets latest_approved_version=None when no approved version."""
-    from api.routes.agent import _agent_to_response
+    from api.routes.agent.helpers import _agent_to_response
 
     agent = _make_agent(with_approved_version=False)
     # Add a pending version (not approved)
@@ -186,9 +183,9 @@ def test_agent_to_response_latest_approved_version_none_when_no_approved():
     agent.model_name = pending_ver.model_name
     agent.model_config_json = pending_ver.model_config_json
     agent.external_mcps = pending_ver.external_mcps
-    agent.supported_ides = pending_ver.supported_ides
-    agent.required_ide_features = pending_ver.required_ide_features
-    agent.inferred_supported_ides = pending_ver.inferred_supported_ides
+    agent.supported_harnesses = pending_ver.supported_harnesses
+    agent.required_capabilities = pending_ver.required_capabilities
+    agent.inferred_supported_harnesses = pending_ver.inferred_supported_harnesses
     agent.status = AgentStatus.pending
     agent.rejection_reason = None
     agent.components = []
@@ -204,7 +201,7 @@ def test_agent_to_response_latest_approved_version_none_when_no_approved():
 
 def test_agent_to_response_populates_latest_version_string():
     """_agent_to_response sets latest_version to agent.version string."""
-    from api.routes.agent import _agent_to_response
+    from api.routes.agent.helpers import _agent_to_response
 
     agent = _make_agent(with_approved_version=True)
 
@@ -227,14 +224,14 @@ async def test_install_agent_no_latest_version_returns_400():
     """install_agent returns 400 when agent has no approved/published version."""
     from fastapi import HTTPException
 
-    from api.routes.agent import install_agent
+    from api.routes.agent.install import install_agent
     from schemas.agent import AgentInstallRequest
 
     agent = _make_agent(with_approved_version=False)
     user = _make_user()
     user.id = agent.created_by  # owner, so auth passes
 
-    req = AgentInstallRequest(ide="claude-code")
+    req = AgentInstallRequest(harness="claude-code")
     request = MagicMock()
     request.url = MagicMock()
     request.url.scheme = "http"
@@ -245,9 +242,9 @@ async def test_install_agent_no_latest_version_returns_400():
     db.commit = AsyncMock()
 
     with (
-        patch("api.routes.agent._load_agent", new=AsyncMock(return_value=agent)),
-        patch("api.routes.agent.get_effective_agent_permission", return_value="owner"),
-        patch("api.routes.agent.audit", new=AsyncMock()),
+        patch("api.routes.agent.install._load_agent", new=AsyncMock(return_value=agent)),
+        patch("api.routes.agent.install.get_effective_agent_permission", return_value="owner"),
+        patch("api.routes.agent.install.audit", new=AsyncMock()),
         patch("services.download_tracker.record_agent_download", new=AsyncMock()),
         pytest.raises(HTTPException) as exc,
     ):
@@ -266,13 +263,13 @@ async def test_install_agent_no_latest_version_returns_400():
 @pytest.mark.asyncio
 async def test_install_agent_with_approved_version_succeeds():
     """install_agent returns 200 with config_snippet when agent has an approved version."""
-    from api.routes.agent import install_agent
+    from api.routes.agent.install import install_agent
     from schemas.agent import AgentInstallRequest
 
     user = _make_user()
     agent = _make_agent(owner_id=user.id, with_approved_version=True)
 
-    req = AgentInstallRequest(ide="claude-code")
+    req = AgentInstallRequest(harness="claude-code")
     request = MagicMock()
     request.url = MagicMock()
     request.url.scheme = "http"
@@ -288,11 +285,11 @@ async def test_install_agent_with_approved_version_succeeds():
     fake_config = {"mcpServers": {}, "rules": "# ruffchecker\n"}
 
     with (
-        patch("api.routes.agent._load_agent", new=AsyncMock(return_value=agent)),
-        patch("api.routes.agent.get_effective_agent_permission", return_value="owner"),
-        patch("api.routes.agent.generate_agent_config", return_value=fake_config),
-        patch("api.routes.agent.emit_registry_event"),
-        patch("api.routes.agent.audit", new=AsyncMock()),
+        patch("api.routes.agent.install._load_agent", new=AsyncMock(return_value=agent)),
+        patch("api.routes.agent.install.get_effective_agent_permission", return_value="owner"),
+        patch("api.routes.agent.install.generate_agent_config", return_value=fake_config),
+        patch("api.routes.agent.install.emit_registry_event"),
+        patch("api.routes.agent.install.audit", new=AsyncMock()),
         patch("api.routes.config.derive_endpoints", return_value={"api": "http://localhost:8000", "otlp_http": ""}),
         patch("services.download_tracker.record_agent_download", new=AsyncMock()),
     ):
@@ -305,5 +302,5 @@ async def test_install_agent_with_approved_version_succeeds():
         )
 
     assert result.agent_id == agent.id
-    assert result.ide == "claude-code"
+    assert result.harness == "claude-code"
     assert isinstance(result.config_snippet, dict)

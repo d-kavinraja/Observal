@@ -33,24 +33,10 @@ class TestSandboxRunner:
         _send_span("http://localhost", "", {"test": True})
         _send_span("", "key", {"test": True})
 
-    @patch("observal_cli.sandbox_runner.httpx.post")
-    def test_send_span_posts(self, mock_post):
+    def test_send_span_noop_after_structured_telemetry_removal(self):
         from observal_cli.sandbox_runner import _send_span
 
-        span = {"span_id": "test", "type": "sandbox_exec"}
-        _send_span("http://localhost:8000", "test-key", span)
-        mock_post.assert_called_once()
-        call_args = mock_post.call_args
-        assert "/api/v1/telemetry/ingest" in call_args[0][0]
-        assert call_args[1]["headers"]["Authorization"] == "Bearer test-key"
-        body = call_args[1]["json"]
-        assert body["spans"] == [span]
-
-    @patch("observal_cli.sandbox_runner.httpx.post", side_effect=Exception("network error"))
-    def test_send_span_swallows_errors(self, mock_post):
-        from observal_cli.sandbox_runner import _send_span
-
-        _send_span("http://localhost:8000", "key", {"test": True})  # should not raise
+        _send_span("http://localhost:8000", "test-key", {"span_id": "test"})
 
     def _run_with_mock_docker(
         self, mock_container, sandbox_id="test-id", image="alpine:latest", command=None, timeout=300
@@ -157,27 +143,21 @@ class _MockListing:
             setattr(self, k, v)
 
 
-class TestSandboxConfigGenerator:
+class TestSandboxMcpEntryBuilder:
     def test_basic(self):
-        from services.sandbox_config_generator import generate_sandbox_config
+        from services.harness.helpers import _build_sandbox_mcp_entry
 
-        listing = _MockListing(id="s-123", image="python:3.12", entrypoint=None, resource_limits={})
-        config = generate_sandbox_config(listing, "cursor")
-        assert config["sandbox"]["command"] == "observal-sandbox-run"
-        assert "--sandbox-id" in config["sandbox"]["args"]
-        assert "s-123" in config["sandbox"]["args"]
-        assert "--image" in config["sandbox"]["args"]
-        assert "python:3.12" in config["sandbox"]["args"]
+        listing = _MockListing(id="s-123", name="sandbox-a", image="python:3.12", entrypoint=None, resource_limits={})
+        config = _build_sandbox_mcp_entry({"s-123": listing}, "cursor")
+        assert "observal-sandbox" in config
+        assert config["observal-sandbox"]["command"] == "python3"
+        assert "observal_cli.sandbox_mcp" in " ".join(config["observal-sandbox"]["args"])
 
-    def test_with_entrypoint(self):
-        from services.sandbox_config_generator import generate_sandbox_config
+    def test_empty(self):
+        from services.harness.helpers import _build_sandbox_mcp_entry
 
-        listing = _MockListing(id="s-456", image="node:18", entrypoint="npm test", resource_limits={"timeout": 60})
-        config = generate_sandbox_config(listing, "kiro")
-        assert "--command" in config["sandbox"]["args"]
-        assert "npm test" in config["sandbox"]["args"]
-        assert "--timeout" in config["sandbox"]["args"]
-        assert "60" in config["sandbox"]["args"]
+        config = _build_sandbox_mcp_entry({}, "kiro")
+        assert config == {}
 
 
 class TestSkillConfigGenerator:
@@ -211,45 +191,6 @@ class TestInstallRouteWiring:
     """Verify install routes call config generators instead of returning stubs."""
 
     @pytest.mark.asyncio
-    async def test_sandbox_install_uses_config_generator(self):
-        from unittest.mock import AsyncMock, patch
-
-        from api.routes.sandbox import install_sandbox
-        from schemas.sandbox import SandboxInstallRequest
-
-        listing = _MockListing(
-            id=uuid.uuid4(),
-            name="test-sandbox",
-            image="alpine:latest",
-            entrypoint=None,
-            resource_limits={},
-            status=MagicMock(value="approved"),
-        )
-
-        mock_db = AsyncMock()
-        mock_result = MagicMock()
-        mock_result.scalar_one_or_none.return_value = listing
-        mock_result.scalars.return_value.first.return_value = listing
-        mock_db.execute.return_value = mock_result
-
-        mock_user = MagicMock()
-        mock_user.id = uuid.uuid4()
-
-        req = SandboxInstallRequest(ide="cursor")
-        with patch(
-            "api.routes.config.derive_endpoints",
-            return_value={
-                "api": "http://localhost:8000",
-                "otlp_http": "http://localhost:8000",
-                "web": "http://localhost:3000",
-            },
-        ):
-            resp = await install_sandbox(listing.id, req, MagicMock(), mock_db, mock_user)
-        config = resp.config_snippet
-        assert "sandbox" in config
-        assert config["sandbox"]["command"] == "observal-sandbox-run"
-
-    @pytest.mark.asyncio
     async def test_skill_install_uses_config_generator(self):
         from unittest.mock import AsyncMock, patch
 
@@ -273,7 +214,7 @@ class TestInstallRouteWiring:
         mock_user = MagicMock()
         mock_user.id = uuid.uuid4()
 
-        req = SkillInstallRequest(ide="claude-code")
+        req = SkillInstallRequest(harness="claude-code")
         with patch(
             "api.routes.config.derive_endpoints",
             return_value={

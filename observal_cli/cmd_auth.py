@@ -1,3 +1,4 @@
+# SPDX-FileCopyrightText: 2026 Hemalatha Madeswaran <hemalathamadeswaran@gmail.com>
 # SPDX-FileCopyrightText: 2026 Aryan Iyappan <aryaniyappan2006@gmail.com>
 # SPDX-FileCopyrightText: 2026 Harishankar <harishankar0301@gmail.com>
 # SPDX-FileCopyrightText: 2026 Hari Srinivasan <harisrini21@gmail.com>
@@ -8,6 +9,7 @@
 # SPDX-FileCopyrightText: 2026 Shreem Seth <shreemseth26@gmail.com>
 # SPDX-FileCopyrightText: 2026 Swathi Saravanan <ss4522@cornell.edu>
 # SPDX-FileCopyrightText: 2026 Vishnu Muthiah <vishnu.muthiah04@gmail.com>
+# SPDX-FileCopyrightText: 2026 Riya Rani <rr1182764@gmail.com>
 # SPDX-License-Identifier: AGPL-3.0-only
 
 """Auth & config CLI commands."""
@@ -22,10 +24,12 @@ from pathlib import Path
 
 import httpx
 import typer
+from loguru import logger as optic
 from rich import print as rprint
 
 from observal_cli import client, config
 from observal_cli.branding import welcome_banner
+from observal_cli.prompts import password_input, quick_choice, text_input
 from observal_cli.render import console, kv_panel, spinner, status_badge
 
 # ── Auth subgroup ───────────────────────────────────────────
@@ -57,18 +61,58 @@ def _validate_password(password: str) -> list[str]:
 
 def _prompt_password(prompt_text: str = "New password") -> str:
     """Prompt for a password, show requirements, retry until valid."""
+    optic.trace("prompt_text={}", prompt_text)
     rprint("\n[dim]Password requirements:[/dim]")
     for label, _ in _PASSWORD_REQUIREMENTS:
         rprint(f"  [dim]· {label}[/dim]")
 
     while True:
-        pw = typer.prompt(f"\n{prompt_text}", hide_input=True)
+        pw = password_input(prompt_text)
         failed = _validate_password(pw)
         if not failed:
             return pw
         rprint("\n[yellow]Password does not meet requirements:[/yellow]")
         for f in failed:
             rprint(f"  [red]✗[/red] {f}")
+
+
+def _ensure_cli_matches_server(server_url: str) -> None:
+    """Block login when the CLI does not exactly match the server."""
+    from packaging.version import InvalidVersion, Version
+
+    from observal_cli.version_check import get_current_version
+
+    cli_ver_str = get_current_version()
+    if cli_ver_str == "0.0.0":
+        return
+
+    try:
+        r = httpx.get(f"{server_url}/api/v1/config/version", timeout=10)
+        r.raise_for_status()
+        server_ver = r.json().get("server_version")
+    except Exception:
+        return
+
+    if not server_ver or server_ver == "dev":
+        return
+
+    try:
+        cli_version = Version(cli_ver_str)
+        server_version = Version(server_ver)
+    except InvalidVersion:
+        return
+
+    if cli_version == server_version:
+        return
+
+    install_command = f"pipx install --force 'observal-cli=={server_ver}'"
+    direction = "ahead of" if cli_version > server_version else "behind"
+    rprint(
+        f"\n[bold red]CLI version {cli_ver_str} is {direction} server {server_ver}.[/bold red]\n"
+        f"  Install the matching CLI before logging in:\n\n"
+        f"    [cyan]{install_command}[/cyan]\n"
+    )
+    raise typer.Exit(1)
 
 
 @auth_app.command()
@@ -78,15 +122,27 @@ def login(
     password: str = typer.Option(None, "--password", "-p", help="Password"),
     name: str = typer.Option(None, "--name", "-n", help="Your name (used for admin setup)"),
     sso: bool = typer.Option(False, "--sso", help="Authenticate via browser SSO"),
+    saml: bool = typer.Option(False, "--saml", help="Authenticate via browser SAML SSO"),
 ):
     """Connect to Observal.
 
-    On a fresh server: prompts for email, name, and password to create admin.
-    With email+password: logs in with credentials.
-    With --sso: authenticates via browser-based SSO using the device flow.
+    On a fresh server: prompts for email, name, and password to create the
+    first admin account. On an initialized server: logs in with credentials
+    or SSO. After login, runs `observal doctor` to check harness instrumentation.
+
+    If the server has SSO enabled, you can choose browser-based login via
+    the device authorization flow (opens your default browser).
+
+    Examples:
+        observal auth login
+        observal auth login --server http://observal.internal:80
+        observal auth login -e admin@example.com -p 'MyP@ss1234!'
+        observal auth login --sso
+        observal auth login --saml
     """
     welcome_banner()
-    server_url = server or typer.prompt("Server URL", default="http://localhost:8000")
+
+    server_url = server or text_input("Server URL", default="") or "http://localhost:80"
     server_url = server_url.rstrip("/")
 
     # 1. Check connectivity + initialization state
@@ -102,22 +158,21 @@ def login(
         rprint(f"[red]Server error:[/red] {e!s}")
         raise typer.Exit(1)
 
-    initialized = health_data.get("initialized", True)
+    _ensure_cli_matches_server(server_url)
 
-    # Check CLI/server version compatibility
-    client.check_version_compatibility(server_url)
+    initialized = health_data.get("initialized", True)
 
     # 2. Fresh server → prompt for admin credentials and initialize
     if not initialized:
-        rprint("[green]Connected.[/green] No users yet — let's set up your admin account.\n")
+        rprint("[green]Connected.[/green] No users yet - let's set up your admin account.\n")
 
-        admin_email = email or typer.prompt("Admin email")
-        admin_name = name or typer.prompt("Admin name", default="admin")
+        admin_email = email or text_input("Admin email")
+        admin_name = name or text_input("Admin name", default="admin")
         if password:
             admin_password = password
         else:
             admin_password = _prompt_password("Admin password")
-            confirm = typer.prompt("Confirm password", hide_input=True)
+            confirm = password_input("Confirm password")
             if admin_password != confirm:
                 rprint("[red]Passwords do not match.[/red]")
                 raise typer.Exit(1)
@@ -140,23 +195,16 @@ def login(
                 "refresh_token": data["refresh_token"],
                 "user_id": user.get("id", ""),
                 "user_name": user.get("name", ""),
+                "username": user.get("username", ""),
             }
             if endpoints:
-                cfg_data["otlp_url"] = endpoints.get("otlp_http", "")
                 cfg_data["web_url"] = endpoints.get("web", "")
             config.save(cfg_data)
 
             rprint(f"[green]Logged in as {user['name']}[/green] ({user['email']}) [admin]")
             rprint(f"[dim]Config saved to {config.CONFIG_FILE}[/dim]\n")
             _fetch_server_public_key(server_url)
-            _configure_claude_code(server_url, data["access_token"])
-            _configure_kiro(server_url)
-            _configure_gemini_cli(server_url)
-            _configure_codex(server_url)
-            _configure_copilot(server_url)
-            _configure_copilot_cli(server_url)
-            _configure_opencode(server_url)
-            _post_auth_onboarding()
+            _post_login_setup()
 
         except httpx.HTTPStatusError as e:
             if e.response.status_code == 400 and "already initialized" in e.response.text.lower():
@@ -169,33 +217,75 @@ def login(
 
     rprint("[green]Connected.[/green]\n")
 
-    # 3. Check if we should use device flow (SSO)
+    # 3. Check available login methods
     sso_mode = False
+    direct_sso = False
+    sso_provider: str | None = None
+    sso_only = False
     sso_available = False
+    oidc_available = False
+    saml_available = False
     try:
         config_r = httpx.get(f"{server_url}/api/v1/config/public", timeout=5)
         if config_r.status_code == 200:
             pub_config = config_r.json()
-            sso_available = pub_config.get("sso_enabled") or pub_config.get("saml_enabled")
             sso_only = pub_config.get("sso_only", False)
-            # Use device flow if --sso flag passed, or if sso_only mode (no password option)
-            if sso or sso_only:
+            oidc_available = bool(pub_config.get("sso_enabled"))
+            saml_available = bool(pub_config.get("saml_enabled"))
+            sso_available = bool(oidc_available or saml_available)
+            if saml and not saml_available:
+                rprint("[red]SAML SSO is not configured on this server.[/red]")
+                raise typer.Exit(1)
+            # Use device flow if --sso/--saml flag passed, or if sso_only mode (no password option)
+            if sso or saml or sso_only:
                 sso_mode = True
+                direct_sso = True
+                if saml:
+                    sso_provider = "saml"
     except Exception:
         pass
 
-    # If SSO available but not required, offer a choice (unless flags already decide)
+    # If flags did not decide, offer the smallest useful method menu.
     if not sso_mode and not (email or password):
-        rprint("  [1] Email/username + password")
-        if sso_available:
-            rprint("  [2] SSO (opens browser)")
-        rprint("  [3] Sign in via browser")
-        choice = typer.prompt("Login method", default="1")
-        if (choice == "2" and sso_available) or choice == "3":
+        if sso_only:
+            if oidc_available and saml_available:
+                rprint("  [1] OIDC SSO")
+                rprint("  [2] SAML SSO")
+                choice = quick_choice("Login method", ["1", "2"])
+                sso_provider = "saml" if choice == "2" else "oidc"
+            else:
+                rprint(f"  [1] {'SAML SSO' if saml_available else 'SSO'}")
+                quick_choice("Login method", ["1"])
+                sso_provider = "saml" if saml_available else None
             sso_mode = True
+            direct_sso = True
+        else:
+            rprint("  [1] CLI email/username + password")
+            rprint("  [2] Web sign-in")
+            valid = ["1", "2"]
+            if oidc_available:
+                rprint("  [3] OIDC SSO")
+                valid.append("3")
+            elif saml_available:
+                rprint("  [3] SAML SSO")
+                valid.append("3")
+            if oidc_available and saml_available:
+                rprint("  [4] SAML SSO")
+                valid.append("4")
+            choice = quick_choice("Login method", valid)
+            if choice == "2":
+                sso_mode = True
+            elif choice == "3" and sso_available:
+                sso_mode = True
+                direct_sso = True
+                sso_provider = "oidc" if oidc_available else "saml"
+            elif choice == "4" and saml_available:
+                sso_mode = True
+                direct_sso = True
+                sso_provider = "saml"
 
     if sso_mode:
-        _do_device_flow_login(server_url)
+        _do_device_flow_login(server_url, direct_sso=direct_sso, provider=sso_provider)
         return
 
     # 4. Email+password provided via flags -> password login
@@ -204,25 +294,24 @@ def login(
         return
 
     # 5. Interactive: prompt for email/username + password
-    login_email = email or typer.prompt("Email or username")
-    login_password = password or typer.prompt("Password", hide_input=True)
+    # In _do_password_login / login interactive section
+    login_email = email or text_input("Email or username")
+    login_password = password or password_input("Password")
     _do_password_login(server_url, login_email, login_password)
 
 
 @auth_app.command()
-def init():
-    """[Removed] Use 'observal auth login' + 'observal agent pull' instead."""
-    rprint("[yellow]'observal auth init' has been removed.[/yellow]")
-    rprint()
-    rprint("Use these commands instead:")
-    rprint("  [bold]observal auth login[/bold]   — connect to your server")
-    rprint("  [bold]observal agent pull[/bold]   — pull agent config to your IDE")
-    raise typer.Exit(1)
-
-
-@auth_app.command()
 def logout():
-    """Clear saved credentials."""
+    """Clear saved credentials.
+
+    Revokes tokens on the server (best-effort), then removes access and
+    refresh tokens from the local config file. The server URL and other
+    settings are preserved. harness hooks will stop sending telemetry after
+    logout.
+
+    Examples:
+        observal auth logout
+    """
     # Best-effort: revoke tokens on the server before clearing locally
     if config.CONFIG_FILE.exists():
         import json
@@ -243,7 +332,7 @@ def logout():
                 )
                 resp.raise_for_status()
             except Exception:
-                pass  # Best-effort — proceed with local cleanup regardless
+                pass  # Best-effort - proceed with local cleanup regardless
 
         for key in ("access_token", "refresh_token", "api_key"):
             raw_cfg.pop(key, None)
@@ -251,8 +340,8 @@ def logout():
 
         rprint("[green]Logged out.[/green]")
         rprint(
-            "[dim]Note: IDE hooks will stop sending telemetry. "
-            "To remove hook scripts from your IDE, run [bold]observal doctor unpatch[/bold].[/dim]"
+            "[dim]Note: harness hooks will stop sending telemetry. "
+            "To remove hook scripts from your harness, run [bold]observal doctor unpatch[/bold].[/dim]"
         )
     else:
         rprint("[dim]No config to clear.[/dim]")
@@ -262,7 +351,15 @@ def logout():
 def whoami(
     output: str = typer.Option("table", "--output", "-o", help="Output format: table, json"),
 ):
-    """Show current authenticated user."""
+    """Show current authenticated user.
+
+    Queries the server for the user associated with the stored access
+    token. Displays username, email, role, and user ID.
+
+    Examples:
+        observal auth whoami
+        observal auth whoami --output json
+    """
     with spinner("Checking..."):
         user = client.get("/api/v1/auth/whoami")
     if output == "json":
@@ -285,7 +382,15 @@ def whoami(
 
 @auth_app.command()
 def status():
-    """Check server connectivity and health."""
+    """Check server connectivity and health.
+
+    Shows the configured server URL, whether auth is configured, server
+    reachability with latency, and local telemetry buffer stats. Useful
+    for diagnosing connectivity issues.
+
+    Examples:
+        observal auth status
+    """
     cfg = config.load()
     url = cfg.get("server_url", "not set")
     has_token = bool(cfg.get("access_token"))
@@ -296,7 +401,6 @@ def status():
     if ok:
         color = "green" if latency < 200 else "yellow" if latency < 1000 else "red"
         rprint(f"  Health:  [{color}]ok[/{color}] ({latency:.0f}ms)")
-        client.check_version_compatibility(url)
     else:
         rprint("  Health:  [red]unreachable[/red]")
 
@@ -320,7 +424,15 @@ def status():
 
 @auth_app.command(name="change-password")
 def change_password():
-    """Change your password."""
+    """Change your password.
+
+    Prompts for your current password, then asks for a new password that
+    meets the security requirements (12+ chars, uppercase, number, and
+    special character). Requires an active login session.
+
+    Examples:
+        observal auth change-password
+    """
     cfg = config.load()
     server_url = cfg.get("server_url")
     token = cfg.get("access_token")
@@ -328,9 +440,9 @@ def change_password():
         rprint("[red]Not logged in.[/red] Run [bold]observal auth login[/bold] first.")
         raise typer.Exit(1)
 
-    current = typer.prompt("Current password", hide_input=True)
+    current = password_input("Current password")
     new_pw = _prompt_password("New password")
-    confirm = typer.prompt("Confirm new password", hide_input=True)
+    confirm = password_input("Confirm password")
     if new_pw != confirm:
         rprint("[red]Passwords do not match.[/red]")
         raise typer.Exit(1)
@@ -359,7 +471,17 @@ def change_password():
 def set_username(
     username: str = typer.Argument(..., help="Username (3-32 chars, lowercase alphanumeric and hyphens)"),
 ):
-    """Set or update your username."""
+    """Set or update your username.
+
+    Usernames must be 3 to 32 characters, lowercase alphanumeric with
+    hyphens allowed. Once set, your username can be used for login and
+    is displayed as @username in the UI.
+
+    Examples:
+        observal auth set-username alice
+        observal auth set-username my-dev-handle
+    """
+    optic.trace("username={}", username)
     from observal_cli import client as _client
 
     try:
@@ -388,9 +510,10 @@ def version_callback():
 def _fetch_endpoints(server_url: str) -> dict:
     """Fetch service endpoint URLs from the discovery endpoint.
 
-    Returns a dict with api, otlp_http, web URLs.
+    Returns a dict with api, web URLs.
     Falls back to sensible defaults if the endpoint is unavailable.
     """
+    optic.trace("server_url={}", server_url)
     try:
         r = httpx.get(f"{server_url.rstrip('/')}/api/v1/config/endpoints", timeout=5)
         if r.status_code == 200:
@@ -406,6 +529,7 @@ def _fetch_server_public_key(server_url: str):
     Best-effort: silently ignored if the server doesn't expose the endpoint
     yet (older server versions) or if connectivity fails.
     """
+    optic.trace("server_url={}", server_url)
     try:
         r = httpx.get(f"{server_url.rstrip('/')}/api/v1/sessions/crypto/public-key", timeout=5)
         if r.status_code == 200:
@@ -421,6 +545,7 @@ def _fetch_server_public_key(server_url: str):
 
 def _do_password_login(server_url: str, email: str, password: str):
     """Authenticate with email/username + password."""
+    optic.trace("server_url={}, email={}", server_url, email)
     try:
         with spinner("Authenticating..."):
             r = httpx.post(
@@ -436,8 +561,8 @@ def _do_password_login(server_url: str, email: str, password: str):
         if data.get("must_change_password"):
             rprint("[yellow]Your admin has required a password change.[/yellow]\n")
             access_token = data["access_token"]
-            new_pw = typer.prompt("New password", hide_input=True)
-            confirm = typer.prompt("Confirm new password", hide_input=True)
+            new_pw = password_input("New password")
+            confirm = password_input("Confirm new password")
             if new_pw != confirm:
                 rprint("[red]Passwords do not match.[/red]")
                 raise typer.Exit(1)
@@ -461,23 +586,16 @@ def _do_password_login(server_url: str, email: str, password: str):
             "refresh_token": data["refresh_token"],
             "user_id": user.get("id", ""),
             "user_name": user.get("name", ""),
+            "username": user.get("username", ""),
         }
         if endpoints:
-            cfg_data["otlp_url"] = endpoints.get("otlp_http", "")
             cfg_data["web_url"] = endpoints.get("web", "")
         config.save(cfg_data)
         rprint(f"[green]Logged in as {user['name']}[/green] ({user['email']}) [{user.get('role', '')}]")
         rprint(f"[dim]Config saved to {config.CONFIG_FILE}[/dim]")
 
         _fetch_server_public_key(server_url)
-        _configure_claude_code(server_url, data["access_token"])
-        _configure_kiro(server_url)
-        _configure_gemini_cli(server_url)
-        _configure_codex(server_url)
-        _configure_copilot(server_url)
-        _configure_copilot_cli(server_url)
-        _configure_opencode(server_url)
-        _post_auth_onboarding()
+        _post_login_setup()
 
     except httpx.HTTPStatusError as e:
         detail = ""
@@ -489,17 +607,19 @@ def _do_password_login(server_url: str, email: str, password: str):
         raise typer.Exit(1)
 
 
-def _do_device_flow_login(server_url: str):
-    """Authenticate via browser-based SSO using the device authorization flow."""
+def _do_device_flow_login(server_url: str, direct_sso: bool = False, provider: str | None = None):
+    """Authenticate via browser using the device authorization flow."""
+    optic.trace("server_url={}", server_url)
     import time
     import webbrowser
+    from urllib.parse import urlparse
 
     # 1. Request device authorization
     try:
         with spinner("Requesting device authorization..."):
             r = httpx.post(
                 f"{server_url}/api/v1/auth/device/authorize",
-                json={},
+                json={"sso": direct_sso, "provider": provider},
                 timeout=10,
             )
             r.raise_for_status()
@@ -515,6 +635,24 @@ def _do_device_flow_login(server_url: str):
     expires_in = data["expires_in"]
     interval = data.get("interval", 5)
 
+    # If the server returned a localhost URL but we connected to a remote server,
+    # rewrite the verification URLs using the server_url we already know.
+    parsed_verification = urlparse(verification_uri)
+    parsed_server = urlparse(server_url)
+    # None check: urlparse returns hostname=None for malformed URLs (bare paths, etc.)
+    if parsed_verification.hostname in ("localhost", "127.0.0.1", "::1") and parsed_server.hostname not in (
+        "localhost",
+        "127.0.0.1",
+        "::1",
+        None,
+    ):
+        base = f"{parsed_server.scheme}://{parsed_server.netloc}"
+        path = parsed_verification.path or "/device"
+        verification_uri = f"{base}{path}"
+        original_query = urlparse(data.get("verification_uri_complete", "")).query
+        verification_uri_complete = f"{base}{path}?{original_query}" if original_query else f"{base}{path}"
+        optic.debug("rewrote localhost verification_uri to {}", verification_uri)
+
     # 2. Display instructions
     rprint()
     rprint("[bold]To sign in, open this URL in your browser:[/bold]")
@@ -526,8 +664,31 @@ def _do_device_flow_login(server_url: str):
 
     # Try to open browser automatically
     try:
-        webbrowser.open(verification_uri_complete)
-        rprint("[dim]Browser opened automatically.[/dim]")
+        import platform
+        import subprocess as _sp
+
+        _opened = False
+        _sys = platform.system()
+        if _sys == "Darwin":
+            _sp.Popen(["open", verification_uri_complete], stderr=_sp.DEVNULL, stdout=_sp.DEVNULL)
+            _opened = True
+        elif _sys == "Linux":
+            # WSL: use powershell.exe to open in Windows browser
+            _wsl = _sp.run(["wslpath", "-w", "/"], capture_output=True)
+            if _wsl.returncode == 0:
+                _sp.Popen(
+                    ["powershell.exe", "-NoProfile", "-c", f"Start-Process '{verification_uri_complete}'"],
+                    stderr=_sp.DEVNULL,
+                    stdout=_sp.DEVNULL,
+                )
+            else:
+                _sp.Popen(["xdg-open", verification_uri_complete], stderr=_sp.DEVNULL, stdout=_sp.DEVNULL)
+            _opened = True
+        else:
+            webbrowser.open(verification_uri_complete)
+            _opened = True
+        if _opened:
+            rprint("[dim]Browser opened automatically.[/dim]")
     except Exception:
         rprint("[dim]Could not open browser automatically. Please open the URL manually.[/dim]")
 
@@ -562,9 +723,9 @@ def _do_device_flow_login(server_url: str):
                     "refresh_token": token_data["refresh_token"],
                     "user_id": user.get("id", ""),
                     "user_name": user.get("name", ""),
+                    "username": user.get("username", ""),
                 }
                 if endpoints:
-                    cfg_data["otlp_url"] = endpoints.get("otlp_http", "")
                     cfg_data["web_url"] = endpoints.get("web", "")
                 config.save(cfg_data)
 
@@ -575,14 +736,7 @@ def _do_device_flow_login(server_url: str):
                 rprint(f"[dim]Config saved to {config.CONFIG_FILE}[/dim]")
 
                 _fetch_server_public_key(server_url)
-                _configure_claude_code(server_url, token_data["access_token"])
-                _configure_kiro(server_url)
-                _configure_gemini_cli(server_url)
-                _configure_codex(server_url)
-                _configure_copilot(server_url)
-                _configure_copilot_cli(server_url)
-                _configure_opencode(server_url)
-                _post_auth_onboarding()
+                _post_login_setup()
                 return
 
             if r.status_code == 428:
@@ -620,7 +774,14 @@ def register_config(app: typer.Typer):
 
     @config_app.command(name="show")
     def config_show():
-        """Show current CLI configuration."""
+        """Show current CLI configuration.
+
+        Prints all config values as JSON. Access and refresh tokens are
+        masked for safety. The config file lives at ~/.observal/config.json.
+
+        Examples:
+            observal config show
+        """
         cfg = config.load()
         safe = dict(cfg)
         if safe.get("access_token"):
@@ -638,7 +799,18 @@ def register_config(app: typer.Typer):
         key: str = typer.Argument(..., help="Config key (output, color, server_url)"),
         value: str = typer.Argument(..., help="Config value"),
     ):
-        """Set a CLI config value."""
+        """Set a CLI config value.
+
+        Persists the given key/value pair to ~/.observal/config.json.
+        Common keys: output (table/json/plain), color (true/false),
+        server_url.
+
+        Examples:
+            observal config set output json
+            observal config set color false
+            observal config set server_url http://observal.internal:80
+        """
+        optic.trace("key={}, value={}", key, value)
         if key == "color":
             config.save({key: value.lower() in ("true", "1", "yes")})
         else:
@@ -647,7 +819,15 @@ def register_config(app: typer.Typer):
 
     @config_app.command(name="path")
     def config_path():
-        """Show config file path."""
+        """Show config file path.
+
+        Prints the absolute path to the CLI config file. Useful for
+        scripting or manual edits.
+
+        Examples:
+            observal config path
+            cat $(observal config path)
+        """
         rprint(str(config.CONFIG_FILE))
 
     @config_app.command(name="alias")
@@ -655,7 +835,17 @@ def register_config(app: typer.Typer):
         name: str = typer.Argument(..., help="Alias name (used as @name)"),
         target: str = typer.Argument(None, help="Target ID (omit to remove)"),
     ):
-        """Set or remove an alias for an MCP/agent ID."""
+        """Set or remove an alias for an MCP/agent ID.
+
+        Aliases let you reference agents or components by short names
+        instead of UUIDs. Use @name in any command that accepts an ID.
+        Omit the target argument to remove an existing alias.
+
+        Examples:
+            observal config alias myagent 550e8400-e29b-41d4-a716-446655440000
+            observal config alias myagent
+        """
+        optic.trace("name={}, target={}", name, target)
         aliases = config.load_aliases()
         if target:
             aliases[name] = target
@@ -671,7 +861,14 @@ def register_config(app: typer.Typer):
 
     @config_app.command(name="aliases")
     def config_aliases():
-        """List all aliases."""
+        """List all aliases.
+
+        Shows all configured @name to ID mappings. Aliases are stored
+        in ~/.observal/aliases.json.
+
+        Examples:
+            observal config aliases
+        """
         aliases = config.load_aliases()
         if not aliases:
             rprint("[dim]No aliases set. Use: observal config alias <name> <id>[/dim]")
@@ -682,17 +879,39 @@ def register_config(app: typer.Typer):
     app.add_typer(config_app, name="config")
 
 
+def _post_login_setup():
+    """Post-login setup: install skills unconditionally, then run doctor."""
+    _install_observal_skill()
+    _generate_initial_layer_snapshot()
+    rprint()
+    try:
+        from unittest.mock import MagicMock
+
+        from observal_cli.cmd_doctor import doctor
+
+        # Call doctor inline so stdin prompts work naturally.
+        # Pass a fake ctx with invoked_subcommand=None so it runs the check logic.
+        ctx = MagicMock()
+        ctx.invoked_subcommand = None
+        doctor(ctx=ctx, yes=False)
+    except (SystemExit, typer.Exit, typer.Abort):
+        pass  # Normal exit from doctor
+    except Exception as e:
+        rprint(f"[yellow]Could not run doctor: {e}[/yellow]")
+        rprint("  Run [bold]observal doctor[/bold] manually to configure your harnesses.")
+
+
 def _post_auth_onboarding():
-    """Detect local IDE configs and show what was found."""
+    """Detect local harness configs and show what was found."""
     try:
         _ide_dirs = {
             "Claude Code": (Path.home() / ".claude", "claude-code"),
             "Kiro CLI": (Path.home() / ".kiro", "kiro"),
             "Cursor": (Path.home() / ".cursor", "cursor"),
-            "Gemini CLI": (Path.home() / ".gemini", "gemini-cli"),
             "Codex": (Path.home() / ".codex", "codex"),
             "Copilot": (Path.home() / ".vscode", "copilot"),
             "OpenCode": (Path.home() / ".config" / "opencode", "opencode"),
+            "Pi": (Path.home() / ".pi" / "agent", "pi"),
         }
 
         found: list[tuple[str, str, int, int]] = []  # (label, ide_key, agents, mcps)
@@ -700,59 +919,16 @@ def _post_auth_onboarding():
             if not dir_path.is_dir():
                 continue
             agents = mcps = 0
-            if ide_key == "claude-code":
-                from observal_cli.cmd_scan import _scan_claude_home
+            try:
+                from observal_cli.harness import NotSupportedError, ensure_loaded, get_adapter
 
-                m, _s, _h, a = _scan_claude_home(dir_path)
-                agents, mcps = len(a), len(m)
-            elif ide_key == "kiro":
-                from observal_cli.cmd_scan import _scan_kiro_home
-
-                m, _s, _h, a = _scan_kiro_home(dir_path)
-                agents, mcps = len(a), len(m)
-            elif ide_key == "gemini-cli":
-                from observal_cli.cmd_scan import _scan_gemini_home
-
-                m, _s, _h, _a = _scan_gemini_home(dir_path)
-                mcps = len(m)
-            elif ide_key == "codex":
-                # Codex: parse ~/.codex/config.toml for [mcp.servers]
-                toml_file = dir_path / "config.toml"
-                if toml_file.exists():
-                    try:
-                        try:
-                            import tomllib as _toml
-                        except ImportError:
-                            try:
-                                import tomli as _toml  # type: ignore[no-redef]
-                            except ImportError:
-                                import toml as _toml  # type: ignore[no-redef]
-                        content = toml_file.read_text()
-                        data = _toml.loads(content) if hasattr(_toml, "loads") else _toml.load(toml_file.open("rb"))  # type: ignore[call-arg]
-                        mcps = len(data.get("mcp", {}).get("servers", {}))
-                    except Exception:
-                        pass
-            elif ide_key == "opencode":
-                # OpenCode: parse ~/.config/opencode/opencode.json for `mcp` key
-                oc_file = dir_path / "opencode.json"
-                if oc_file.exists():
-                    try:
-                        import json as _j
-
-                        oc_data = _j.loads(oc_file.read_text())
-                        mcps = len(oc_data.get("mcp", {}))
-                    except Exception:
-                        pass
-            else:
-                mcp_file = dir_path / "mcp.json"
-                if mcp_file.exists():
-                    try:
-                        import json as _j
-
-                        data = _j.loads(mcp_file.read_text())
-                        mcps = len(data.get("mcpServers", data.get("servers", {})))
-                    except Exception:
-                        pass
+                ensure_loaded()
+                adapter = get_adapter(ide_key)
+                result = adapter.scan_home(dir_path.parent)
+                agents = len(result.agents)
+                mcps = len(result.mcps)
+            except (KeyError, NotSupportedError):
+                pass
             if agents > 0 or mcps > 0:
                 found.append((label, ide_key, agents, mcps))
 
@@ -760,7 +936,7 @@ def _post_auth_onboarding():
             return
 
         rprint()
-        rprint("[bold]\N{ELECTRIC LIGHT BULB} Detected local IDE configs.[/bold]")
+        rprint("[bold]\N{ELECTRIC LIGHT BULB} Detected local harness configs.[/bold]")
         rprint()
         for label, _key, agents, mcps in found:
             parts = []
@@ -768,23 +944,45 @@ def _post_auth_onboarding():
                 parts.append(f"{agents} agent{'s' if agents != 1 else ''}")
             if mcps:
                 parts.append(f"{mcps} MCP{'s' if mcps != 1 else ''}")
-            rprint(f"  [bold]{label}[/bold] — {', '.join(parts)} found")
+            rprint(f"  [bold]{label}[/bold] - {', '.join(parts)} found")
         rprint()
-        rprint("[dim]Run `observal doctor patch --all --all-ides` to instrument telemetry.[/dim]")
+        rprint("[dim]Run `observal doctor patch --all --all-harnesses` to instrument telemetry.[/dim]")
 
     except Exception:
         pass
 
 
+def _generate_initial_layer_snapshot():
+    """Generate ~/.observal/layer_snapshot.json scanning all detected harnesses.
+
+    Runs once after login to establish the initial baseline of the user's
+    harness configuration state. Silent on failure.
+    """
+    try:
+        from observal_cli.layer import ensure_local_snapshot
+
+        ensure_local_snapshot()
+    except Exception:
+        pass  # Never block login on snapshot failure
+
+
+def _install_observal_skill():
+    """Install the bundled Observal skills to all detected harness skill directories."""
+    from observal_cli.skill_installer import install_observal_skill
+
+    install_observal_skill()
+
+
 def _run_doctor_patch(ide_name: str):
-    """Run 'observal doctor patch --all --ide <name>' as a subprocess."""
+    """Run 'observal doctor patch --all --harness <name>' as a subprocess."""
+    optic.trace("ide_name={}", ide_name)
     import subprocess
     import sys
 
     try:
         env = {**os.environ, "PYTHONIOENCODING": "utf-8"}
         result = subprocess.run(
-            [sys.executable, "-m", "observal_cli.main", "doctor", "patch", "--all", "--ide", ide_name],
+            [sys.executable, "-m", "observal_cli.main", "doctor", "patch", "--all", "--harness", ide_name],
             capture_output=True,
             text=True,
             encoding="utf-8",
@@ -798,11 +996,35 @@ def _run_doctor_patch(ide_name: str):
             rprint(f"[yellow]{result.stderr.rstrip()}[/yellow]")
     except Exception as e:
         rprint(f"[yellow]Could not run doctor patch: {e}[/yellow]")
-        rprint(f"Run [bold]observal doctor patch --all --ide {ide_name}[/bold] manually.")
+        rprint(f"Run [bold]observal doctor patch --all --harness {ide_name}[/bold] manually.")
+
+
+def _configure_cursor(server_url: str):
+    """Check for Cursor (harness or CLI) and offer to configure its telemetry hooks."""
+    optic.trace("server_url={}", server_url)
+    cursor_dir = Path.home() / ".cursor"
+
+    try:
+        cursor_exists = cursor_dir.is_dir() or shutil.which("cursor")
+        if not cursor_exists:
+            return
+
+        if not typer.confirm(
+            "\nDetected Cursor. Configure telemetry -> Observal?",
+            default=True,
+        ):
+            return
+
+        _run_doctor_patch("cursor")
+
+    except Exception as e:
+        rprint(f"\n[yellow]Could not configure Cursor automatically: {e}[/yellow]")
+        rprint("Run [bold]observal doctor patch --all --harness cursor[/bold] to set up manually.")
 
 
 def _configure_kiro(server_url: str):
     """Check for Kiro CLI and offer to configure its telemetry hooks."""
+    optic.trace("server_url={}", server_url)
     kiro_dir = Path.home() / ".kiro"
 
     try:
@@ -820,33 +1042,12 @@ def _configure_kiro(server_url: str):
 
     except Exception as e:
         rprint(f"\n[yellow]Could not configure Kiro automatically: {e}[/yellow]")
-        rprint("Run [bold]observal doctor patch --all --ide kiro[/bold] to set up manually.")
-
-
-def _configure_gemini_cli(server_url: str):
-    """Check for Gemini CLI and configure telemetry via doctor patch."""
-    try:
-        # The gemini binary is the definitive signal.
-        # ~/.gemini/settings.json can be created by a previous observal doctor patch,
-        # so its presence alone doesn't mean Gemini CLI is actually installed.
-        if not shutil.which("gemini"):
-            return
-
-        if not typer.confirm(
-            "\nDetected Gemini CLI. Configure telemetry -> Observal?",
-            default=True,
-        ):
-            return
-
-        _run_doctor_patch("gemini-cli")
-
-    except Exception as e:
-        rprint(f"\n[yellow]Could not configure Gemini CLI automatically: {e}[/yellow]")
-        rprint("Run [bold]observal doctor patch --all --ide gemini-cli[/bold] to set up manually.")
+        rprint("Run [bold]observal doctor patch --all --harness kiro[/bold] to set up manually.")
 
 
 def _configure_codex(server_url: str):
     """Check for Codex CLI and configure telemetry via doctor patch."""
+    optic.trace("server_url={}", server_url)
     codex_dir = Path.home() / ".codex"
 
     try:
@@ -855,7 +1056,7 @@ def _configure_codex(server_url: str):
             return
 
         if not typer.confirm(
-            "\nDetected Codex CLI. Configure OTLP telemetry -> Observal?",
+            "\nDetected Codex CLI. Configure telemetry -> Observal?",
             default=True,
         ):
             return
@@ -864,11 +1065,12 @@ def _configure_codex(server_url: str):
 
     except Exception as e:
         rprint(f"\n[yellow]Could not configure Codex automatically: {e}[/yellow]")
-        rprint("Run [bold]observal doctor patch --all --ide codex[/bold] manually.")
+        rprint("Run [bold]observal doctor patch --all --harness codex[/bold] manually.")
 
 
 def _configure_copilot(server_url: str):
     """Check for GitHub Copilot (VS Code) and configure telemetry via doctor patch."""
+    optic.trace("server_url={}", server_url)
     try:
         vscode_dir = Path.home() / ".vscode"
         if not vscode_dir.is_dir():
@@ -896,6 +1098,7 @@ def _configure_copilot(server_url: str):
 
 def _configure_copilot_cli(server_url: str):
     """Check for Copilot CLI and configure telemetry via doctor patch."""
+    optic.trace("server_url={}", server_url)
     try:
         # The copilot binary is the definitive signal.
         # ~/.copilot/config.json can be created by a previous observal doctor patch,
@@ -917,11 +1120,14 @@ def _configure_copilot_cli(server_url: str):
 
 def _configure_opencode(server_url: str):
     """Check for OpenCode and configure telemetry via doctor patch."""
+    optic.trace("server_url={}", server_url)
     try:
-        # The opencode binary is the strongest signal.
-        # ~/.config/opencode/opencode.json can be created by a previous observal
-        # doctor patch, so also accept it only if the binary is present.
-        if not shutil.which("opencode"):
+        # The opencode binary is the strongest signal. The official installer
+        # commonly places it at ~/.opencode/bin/opencode without adding it to PATH.
+        # ~/.config/opencode/opencode.json can be created by a previous Observal
+        # doctor patch, so accept config only when a binary is present.
+        opencode_bin = Path.home() / ".opencode" / "bin" / "opencode"
+        if not shutil.which("opencode") and not opencode_bin.exists():
             return
 
         if not typer.confirm(
@@ -940,8 +1146,9 @@ def _configure_claude_code(server_url: str, access_token: str):
     """Check for Claude Code and configure telemetry via doctor patch.
 
     Fetches a long-lived hooks token first (needed by the patch command),
-    then delegates to 'observal doctor patch --all --ide claude-code'.
+    then delegates to 'observal doctor patch --all --harness claude-code'.
     """
+    optic.trace("server_url={}", server_url)
     claude_dir = Path.home() / ".claude"
 
     try:
@@ -966,14 +1173,15 @@ def _configure_claude_code(server_url: str, access_token: str):
 
     except Exception as e:
         rprint(f"\n[yellow]Could not configure Claude Code automatically: {e}[/yellow]")
-        rprint("Run [bold]observal doctor patch --all --ide claude-code[/bold] manually.")
+        rprint("Run [bold]observal doctor patch --all --harness claude-code[/bold] manually.")
 
 
 def _fetch_hooks_token(server_url: str, access_token: str) -> str:
-    """Call /auth/hooks-token to get a long-lived token for OTEL hooks.
+    """Call /auth/hooks-token to get a long-lived token for telemetry hooks.
 
     Falls back to the session access_token if the endpoint fails.
     """
+    optic.trace("server_url={}", server_url)
     try:
         r = httpx.post(
             f"{server_url.rstrip('/')}/api/v1/auth/hooks-token",

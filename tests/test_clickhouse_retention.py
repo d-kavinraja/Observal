@@ -18,12 +18,13 @@ def _mock_response(status_code=200):
 @pytest.mark.asyncio
 async def test_retention_ttl_applied():
     """init_clickhouse applies TTL when DATA_RETENTION_DAYS > 0."""
+    import services.dynamic_settings as ds
+
     with (
-        patch("services.clickhouse.settings") as mock_settings,
-        patch("services.clickhouse._query", new_callable=AsyncMock) as mock_query,
+        patch.object(ds, "get_int", new=AsyncMock(return_value=90)),
+        patch("services.clickhouse.client.clickhouse_health", new=AsyncMock(return_value=True)),
+        patch("services.clickhouse.client._query", new_callable=AsyncMock) as mock_query,
     ):
-        mock_settings.DATA_RETENTION_DAYS = 90
-        mock_settings.CLICKHOUSE_URL = "clickhouse://localhost:8123/observal"
         mock_query.return_value = _mock_response()
 
         from services.clickhouse import init_clickhouse
@@ -32,7 +33,7 @@ async def test_retention_ttl_applied():
 
         # Check TTL ALTER statements were called
         ttl_calls = [call for call in mock_query.call_args_list if "MODIFY TTL" in str(call)]
-        assert len(ttl_calls) == 5, f"Expected 5 TTL statements, got {len(ttl_calls)}"
+        assert len(ttl_calls) == 1, f"Expected 1 TTL statement, got {len(ttl_calls)}"
 
         # Verify retention days in the SQL
         for call in ttl_calls:
@@ -42,12 +43,13 @@ async def test_retention_ttl_applied():
 @pytest.mark.asyncio
 async def test_retention_disabled_when_zero():
     """init_clickhouse skips TTL when DATA_RETENTION_DAYS=0."""
+    import services.dynamic_settings as ds
+
     with (
-        patch("services.clickhouse.settings") as mock_settings,
-        patch("services.clickhouse._query", new_callable=AsyncMock) as mock_query,
+        patch.object(ds, "get_int", new=AsyncMock(return_value=0)),
+        patch("services.clickhouse.client.clickhouse_health", new=AsyncMock(return_value=True)),
+        patch("services.clickhouse.client._query", new_callable=AsyncMock) as mock_query,
     ):
-        mock_settings.DATA_RETENTION_DAYS = 0
-        mock_settings.CLICKHOUSE_URL = "clickhouse://localhost:8123/observal"
         mock_query.return_value = _mock_response()
 
         from services.clickhouse import init_clickhouse
@@ -60,15 +62,16 @@ async def test_retention_disabled_when_zero():
 
 @pytest.mark.asyncio
 async def test_retention_tables_covered():
-    """All four ClickHouse tables get TTL statements."""
-    expected_tables = {"traces", "spans", "scores", "otel_logs", "session_events"}
+    """The JSONL session table gets a TTL statement."""
+    expected_tables = {"session_events"}
+
+    import services.dynamic_settings as ds
 
     with (
-        patch("services.clickhouse.settings") as mock_settings,
-        patch("services.clickhouse._query", new_callable=AsyncMock) as mock_query,
+        patch.object(ds, "get_int", new=AsyncMock(return_value=30)),
+        patch("services.clickhouse.client.clickhouse_health", new=AsyncMock(return_value=True)),
+        patch("services.clickhouse.client._query", new_callable=AsyncMock) as mock_query,
     ):
-        mock_settings.DATA_RETENTION_DAYS = 30
-        mock_settings.CLICKHOUSE_URL = "clickhouse://localhost:8123/observal"
         mock_query.return_value = _mock_response()
 
         from services.clickhouse import init_clickhouse

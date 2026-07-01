@@ -5,7 +5,7 @@
 
 # Hooks specification
 
-The schema Observal uses for hook definitions -- both the registry hook type (`observal registry hook`) and hooks wired into IDE configs by `observal agent pull` / `observal doctor patch`.
+The schema Observal uses for hook definitions -- both the registry hook type (`observal registry hook`) and hooks wired into harness configs by `observal agent pull` / `observal doctor patch`.
 
 Current version: `HOOKS_SPEC_VERSION = "5"` (see `observal_cli/hooks_spec.py`).
 
@@ -13,8 +13,8 @@ Current version: `HOOKS_SPEC_VERSION = "5"` (see `observal_cli/hooks_spec.py`).
 
 Two distinct things share the name "hook":
 
-1. **Registry hooks** — packaged, versioned hook definitions in the Observal registry. Install them via `observal registry hook install`.
-2. **IDE hooks** -- entries in `~/.claude/settings.json`, `.kiro/agents/<name>.json`, etc. These are written by `observal agent pull` and `observal doctor patch --hook`.
+1. **Registry hooks**: packaged, versioned hook definitions in the Observal registry. Install them via `observal registry hook install`.
+2. **harness hooks** -- entries in `~/.claude/settings.json`, `.kiro/agents/<name>.json`, etc. These are written by `observal agent pull` and `observal doctor patch --hook`.
 
 Both use the same event vocabulary.
 
@@ -22,13 +22,13 @@ Both use the same event vocabulary.
 
 | Event | When it fires |
 | --- | --- |
-| `SessionStart` | New IDE session begins |
+| `SessionStart` | New harness session begins |
 | `Stop` | Session ends |
 | `SubagentStop` | Sub-agent session ends (Claude Code only) |
 | `UserPromptSubmit` | User submits a prompt |
 | `PreToolUse` | Before a tool call |
 | `PostToolUse` | After a tool call (with result) |
-| `Notification` | IDE surfaces a notification |
+| `Notification` | harness surfaces a notification |
 
 Source: `observal_cli/constants.py:VALID_HOOK_EVENTS`.
 
@@ -43,8 +43,8 @@ Source: `observal_cli/constants.py:VALID_HOOK_EVENTS`.
 
 | Mode | Semantics |
 | --- | --- |
-| `async` | Fire and forget — IDE doesn't wait |
-| `sync` | IDE waits for handler to return before continuing |
+| `async` | Fire and forget - harness doesn't wait |
+| `sync` | harness waits for handler to return before continuing |
 | `blocking` | Handler can veto the event (e.g. block a tool call) |
 
 Source: `observal_cli/constants.py:VALID_HOOK_EXECUTION_MODES`.
@@ -84,7 +84,7 @@ Older installs (pre-metadata) are detected with a fallback heuristic.
         "_observal": { "version": "5", "source": "observal-pull" },
         "matcher": "*",
         "type": "http",
-        "url": "http://localhost:8000/api/v1/telemetry/hooks",
+        "url": "http://localhost/api/v1/telemetry/hooks",
         "method": "POST",
         "headers": {
           "Authorization": "Bearer ${OBSERVAL_API_KEY}",
@@ -104,11 +104,11 @@ Kiro doesn't support native HTTP hooks, so Observal uses `curl`:
 {
   "name": "my-agent",
   "hooks": {
-    "agentSpawn":       "curl -s -X POST http://localhost:8000/api/v1/telemetry/hooks -H 'Authorization: Bearer $OBSERVAL_API_KEY' -H 'Content-Type: application/json' -d @-",
-    "userPromptSubmit": "curl -s -X POST http://localhost:8000/api/v1/telemetry/hooks ...",
-    "preToolUse":       "curl -s -X POST http://localhost:8000/api/v1/telemetry/hooks ...",
-    "postToolUse":      "curl -s -X POST http://localhost:8000/api/v1/telemetry/hooks ...",
-    "stop":             "curl -s -X POST http://localhost:8000/api/v1/telemetry/hooks ..."
+    "agentSpawn":       "curl -s -X POST http://localhost/api/v1/telemetry/hooks -H 'Authorization: Bearer $OBSERVAL_API_KEY' -H 'Content-Type: application/json' -d @-",
+    "userPromptSubmit": "curl -s -X POST http://localhost/api/v1/telemetry/hooks ...",
+    "preToolUse":       "curl -s -X POST http://localhost/api/v1/telemetry/hooks ...",
+    "postToolUse":      "curl -s -X POST http://localhost/api/v1/telemetry/hooks ...",
+    "stop":             "curl -s -X POST http://localhost/api/v1/telemetry/hooks ..."
   }
 }
 ```
@@ -140,7 +140,7 @@ When submitting a hook to the registry (`observal registry hook submit`):
   "command": "echo \"$TOOL_NAME $(date)\" >> ~/.observal/tool-log.txt",
   "execution_mode": "async",
   "scope": "agent",
-  "ide": ["claude-code", "kiro"]
+  "harness": ["claude-code", "kiro"]
 }
 ```
 
@@ -148,9 +148,9 @@ Each field is validated server-side against the lists in `observal_cli/constants
 
 ## Source of truth
 
-* `observal_cli/hooks_spec.py` — version, metadata marker, spec shape
-* `observal_cli/constants.py` — valid events, handler types, execution modes, scopes
-* `observal-server/schemas/constants.py` — server-side mirror
+* `observal_cli/hooks_spec.py`: version, metadata marker, spec shape
+* `observal_cli/constants.py`: valid events, handler types, execution modes, scopes
+* `observal-server/schemas/constants.py`: server-side mirror
 
 A sync test (`tests/test_constants_sync.py`) ensures CLI and server stay in lockstep.
 
@@ -158,4 +158,3 @@ A sync test (`tests/test_constants_sync.py`) ensures CLI and server stay in lock
 
 * [`observal registry hook`](../cli/registry.md)
 * [Telemetry pipeline](../self-hosting/telemetry-pipeline.md)
-* [Integrations → Claude Code](../integrations/claude-code.md) / [Kiro](../integrations/kiro.md)

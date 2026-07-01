@@ -39,6 +39,7 @@
     - [After review feedback](#after-review-feedback)
 - [Working on the Backend](#working-on-the-backend)
     - [Running tests](#running-tests)
+    - [Testing conventions](#testing-conventions)
     - [Running a single test](#running-a-single-test)
     - [Code coverage](#code-coverage)
     - [Adding a database migration](#adding-a-database-migration)
@@ -53,7 +54,7 @@
 - [Working on the CLI](#working-on-the-cli)
     - [Reinstalling after changes](#reinstalling-after-changes)
     - [Testing the shim](#testing-the-shim)
-- [IDE Recommendations](#ide-recommendations)
+- [Harness Recommendations](#harness-recommendations)
     - [VS Code](#vs-code)
     - [PyCharm / IntelliJ](#pycharm--intellij)
 - [Pre-commit Hooks](#pre-commit-hooks)
@@ -71,7 +72,7 @@ We are a small, active community and we take the quality of interactions serious
 >
 > - Pinging contributors, maintainers, or reviewers unnecessarily (outside of a direct reply on your own open PR or issue)
 > - Submitting low-effort or unreviewed PRs (slop), including unreviewed AI output or autonomous agent submissions
-> - Violating the [Code of Conduct](../../CODE_OF_CONDUCT.md) in any channel
+> - Violating the [Code of Conduct](../CODE_OF_CONDUCT.md) in any channel
 > - Harassing reviewers over merge timelines
 
 Maintainers volunteer their time. Treat them accordingly.
@@ -158,7 +159,7 @@ cd Observal
 3. Add the upstream remote so you can pull in changes from the main repo:
 
 ```bash
-git remote add upstream https://github.com/BlazeUp-AI/Observal.git
+git remote add upstream https://github.com/Observal/Observal.git
 ```
 
 4. Verify your remotes:
@@ -167,8 +168,8 @@ git remote add upstream https://github.com/BlazeUp-AI/Observal.git
 git remote -v
 # origin    git@github.com:YOUR-USERNAME/Observal.git (fetch)
 # origin    git@github.com:YOUR-USERNAME/Observal.git (push)
-# upstream  https://github.com/BlazeUp-AI/Observal.git (fetch)
-# upstream  https://github.com/BlazeUp-AI/Observal.git (push)
+# upstream  https://github.com/Observal/Observal.git (fetch)
+# upstream  https://github.com/Observal/Observal.git (push)
 ```
 
 ---
@@ -190,11 +191,26 @@ cp .env.example .env
 make up
 ```
 
-The first build takes several minutes while Docker downloads and compiles images. Subsequent starts are fast. Watch progress with:
+The first build takes several minutes while Docker downloads and compiles images. Subsequent starts are fast.
+
+Watch progress with:
 
 ```bash
 make logs
 ```
+
+For normal code and dependency changes, prefer the fast rebuild target:
+
+```bash
+make rebuild-fast
+```
+
+`make rebuild-fast` is not a separate dev profile and does not enable hot reload. It uses the same Docker Compose stack as `make rebuild`, but only builds the two app images that contain local code:
+
+- `observal-api`, shared by the API, init, and worker services
+- `observal-web`, used by the web service
+
+Then it starts the full stack with the freshly built images.
 
 Wait until all services are healthy:
 
@@ -207,10 +223,10 @@ docker compose -f docker/docker-compose.yml ps
 
 | Service         | URL                     |
 | --------------- | ----------------------- |
-| API             | `http://localhost:8000` |
-| Web UI          | `http://localhost:3000` |
-| Grafana         | `http://localhost:3001` |
-| Prometheus      | `http://localhost:9090` |
+| LB (all traffic)| `http://localhost`      |
+| Web UI (direct) | `http://localhost:3000` |
+| Prometheus, optional | `http://localhost:9090` |
+| Grafana, optional | `http://localhost:3001` |
 | ClickHouse HTTP | `http://localhost:8123` |
 
 ### Install the CLI
@@ -243,18 +259,33 @@ Seeded automatically on first startup:
 ## Make Targets Reference
 
 ```bash
-make up          # start the full Docker stack
-make down        # stop the stack
-make rebuild     # rebuild images and restart (use after code changes)
-make logs        # tail logs from all services
-make test        # run the test suite quickly
-make test-v      # verbose test output
-make lint        # ruff check + hadolint
-make format      # ruff format (auto-fix)
-make check       # pre-commit on all files
-make hooks       # install pre-commit hooks
-make reset       # nuke all volumes and rebuild from scratch (destructive)
+make up            # start the full Docker stack
+make down          # stop the stack
+make rebuild-fast  # fast app rebuild for code and dependency changes
+make rebuild       # rebuild every service image and restart
+make logs          # tail logs from all services
+make test          # run the test suite quickly
+make test-v        # verbose test output
+make lint          # ruff check + hadolint
+make format        # ruff format (auto-fix)
+make check         # pre-commit on all files
+make hooks         # install pre-commit hooks
+make reset         # nuke all volumes and rebuild from scratch (destructive)
 ```
+
+### Which rebuild target should I use?
+
+| Situation | Target | Notes |
+| --------- | ------ | ----- |
+| Backend source changed | `make rebuild-fast` | Rebuilds the shared API image used by API, init, and worker. |
+| Worker, init, migration, or ClickHouse setup code changed | `make rebuild-fast` | These services use the same `observal-api` image. This is the safe path for schema and init path changes because it refreshes the image used by `observal-init` and `observal-worker`. |
+| Python dependencies changed in `observal-server/pyproject.toml` or `observal-server/uv.lock` | `make rebuild-fast` | Docker reruns the Python dependency layer when those files change. |
+| Frontend source changed | `make rebuild-fast` | Rebuilds the web image. |
+| Frontend dependencies changed in `package.json`, `web/package.json`, or `pnpm-lock.yaml` | `make rebuild-fast` | Docker reruns the pnpm dependency layer when those files change. |
+| Compose topology changed | `make rebuild` | Use this for new services, changed image names, changed build contexts, changed profiles, or volume and network changes. |
+| Cache looks stale or the stack behaves unexpectedly | `make rebuild` first | Use `make rebuild-clean` only when you intentionally want a no-cache rebuild with volumes removed. |
+
+`make down` stops containers started by either `make rebuild` or `make rebuild-fast`. Both targets use the same Compose project and the same volumes.
 
 ---
 
@@ -275,12 +306,12 @@ scripts/            Dev tooling scripts
 
 **Databases:**
 
-- **PostgreSQL**, relational data (users, agents, registry, feedback, eval runs)
+- **PostgreSQL**, relational data (users, agents, registry, feedback)
 - **ClickHouse**, time-series telemetry (traces, spans, scores)
 
 They are not interchangeable. Never write telemetry to Postgres or relational data to ClickHouse.
 
-**Supporting services:** Redis (pub/sub + arq job queue), arq worker, nginx reverse proxy, Prometheus, Grafana.
+**Supporting services:** Redis (pub/sub + arq job queue), arq worker, nginx reverse proxy. Prometheus and Grafana are optional.
 
 See [AGENTS.md](../../AGENTS.md) for a complete map of every important file and service.
 
@@ -356,7 +387,7 @@ git push origin feature/my-feature --force-with-lease
     ```bash
     git push origin feature/my-feature
     ```
-3. GitHub will show a banner on your fork offering to open a PR. Click it, or go to the [Observal repository](https://github.com/BlazeUp-AI/Observal) directly.
+3. GitHub will show a banner on your fork offering to open a PR. Click it, or go to the [Observal repository](https://github.com/Observal/Observal) directly.
 4. Fill in the PR template completely. PRs that do not follow the template will be closed.
 5. Link the related issue if one exists (`Fixes #123` in the PR body closes it automatically on merge).
 
@@ -380,10 +411,18 @@ Tests mock all external services. Docker does not need to be running.
 
 ```bash
 make test
+make test-v
+make test-eval-completeness
+make test-adversarial
+make test-all
 # or directly:
 cd observal-server
 uv run --with pytest --with pytest-asyncio --with hypothesis --with pyarrow pytest ../tests/ -q
 ```
+
+### Testing conventions
+
+New Python tests should follow the [Testing Guide](testing/Testing_Guide.md). The current suite has mixed historical patterns, so do not rewrite old tests only for style. When adding or touching tests, prefer the clean pattern documented there: one behavior area per file, small local helper factories, hermetic CLI and API test setup, explicit async mocks, and behavior-focused assertions.
 
 ### Running a single test
 
@@ -466,10 +505,12 @@ docker compose -f docker/docker-compose.yml logs -f observal-api
 
 To add a breakpoint, use `breakpoint()` in Python code, the debugger will pause in the container's stdout. Or attach a remote debugger by adding `debugpy` to your dev dependencies and exposing a debug port.
 
-The OpenAPI docs are available at:
+The OpenAPI docs are available at (API port, not through the LB which blocks these paths):
 
-- `http://localhost:8000/docs` (Swagger UI)
-- `http://localhost:8000/redoc` (ReDoc)
+- `http://localhost:8000/docs` (Swagger UI, requires direct API port access)
+- `http://localhost:8000/redoc` (ReDoc, requires direct API port access)
+
+> Note: The nginx LB blocks `/docs`, `/redoc`, and `/openapi.json` in production. For local dev, expose the API port directly or use `docker compose exec`.
 
 ---
 
@@ -486,7 +527,7 @@ pnpm dev
 Create `web/.env.local` with:
 
 ```bash
-NEXT_PUBLIC_API_URL=http://localhost:8000
+NEXT_PUBLIC_API_URL=http://localhost
 ```
 
 The frontend proxies all `/api/v1/*` calls to the backend URL set by `NEXT_PUBLIC_API_URL`.
@@ -536,7 +577,7 @@ uv tool install --editable . --reinstall
 
 ### Testing the shim
 
-The shim (`observal-shim`) is a transparent stdio JSON-RPC proxy that sits between an IDE and an MCP server. To test it manually:
+The shim (`observal-shim`) is a transparent stdio JSON-RPC proxy that sits between an harness and an MCP server. To test it manually:
 
 ```bash
 # Wrap a real MCP server command
@@ -547,7 +588,7 @@ Telemetry will be buffered to `~/.observal/telemetry_buffer.db` if the server is
 
 ---
 
-## IDE Recommendations
+## Harness Recommendations
 
 ### VS Code
 

@@ -1,180 +1,220 @@
 // SPDX-FileCopyrightText: 2026 Aryan Iyappan <aryaniyappan2006@gmail.com>
 // SPDX-License-Identifier: AGPL-3.0-only
 
-"use client";
+import { useEffect, useMemo, useState } from "react";
+import { Check, ChevronsUpDown, X } from "lucide-react";
 
-import { useMemo } from "react";
-
+import { Badge } from "@/components/ui/badge";
+import { Button } from "@/components/ui/button";
+import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
-import {
-  Select,
-  SelectContent,
-  SelectGroup,
-  SelectItem,
-  SelectLabel,
-  SelectTrigger,
-  SelectValue,
-} from "@/components/ui/select";
-import { useModels } from "@/hooks/use-api";
-import {
-  IDE_DISPLAY_NAMES,
-  type IdeName,
-  getModelChoiceIdes,
-} from "@/lib/ide-features";
-import { annotateForDisplay, formatModel } from "@/lib/model-display";
-import type { CatalogModel } from "@/lib/types";
-
-const AUTO_VALUE = "__auto__";
-
-function modelsForIde(catalog: CatalogModel[], ide: string): CatalogModel[] {
-  return catalog.filter((m) => (m.supported_ides ?? []).includes(ide));
-}
+import { Popover, PopoverAnchor, PopoverContent } from "@/components/ui/popover";
+import { PickerSelect } from "@/components/ui/picker-select";
+import { useHarnesses } from "@/hooks/use-harnesses";
+import { cn } from "@/lib/utils";
 
 interface ModelPickerProps {
-  /** The default model_id used when no per-IDE override is set. */
   modelName: string;
   onModelNameChange: (value: string) => void;
-  /** Per-IDE overrides keyed by IDE name. */
-  modelsByIde: Record<string, string>;
-  onModelsByIdeChange: (next: Record<string, string>) => void;
-  /** When false, hide the per-IDE overrides UI to keep the simple form simple. */
-  showPerIdeOverrides?: boolean;
+  modelsByHarness: Record<string, string>;
+  onModelsByHarnessChange: (value: Record<string, string>) => void;
 }
 
-/**
- * Reusable model picker shared by the agent builder and the agent edit form.
- *
- * - Default model: a single ``Select`` against the live catalog.
- * - Per-IDE overrides: optional ``Select`` per IDE that ``accepts_model_choice``.
- *   Empty value = "auto" sentinel; the server will substitute the IDE's auto
- *   equivalent at install time and warn the user if the saved value is gone.
- */
+interface ModelComboboxProps {
+  value: string;
+  models: string[];
+  placeholder: string;
+  onChange: (value: string) => void;
+}
+
+function ModelCombobox({ value, models, placeholder, onChange }: ModelComboboxProps) {
+  const [open, setOpen] = useState(false);
+  const filteredModels = models
+    .filter((model) => model.toLowerCase().includes(value.trim().toLowerCase()))
+    .slice(0, 50);
+
+  return (
+    <Popover open={open} onOpenChange={setOpen}>
+      <PopoverAnchor asChild>
+        <div className="relative">
+          <Input
+            value={value}
+            onChange={(event) => {
+              onChange(event.target.value);
+              setOpen(true);
+            }}
+            onFocus={() => setOpen(true)}
+            placeholder={placeholder}
+            className="pr-9 font-mono text-xs"
+          />
+          <button
+            type="button"
+            onClick={() => setOpen((current) => !current)}
+            className="absolute right-2 top-1/2 -translate-y-1/2 rounded text-muted-foreground hover:text-foreground"
+            aria-label="Show model suggestions"
+          >
+            <ChevronsUpDown className="h-3.5 w-3.5" />
+          </button>
+        </div>
+      </PopoverAnchor>
+      <PopoverContent
+        align="start"
+        className="max-h-[min(24rem,var(--radix-popover-content-available-height))] w-[var(--radix-popover-trigger-width)] overflow-y-auto p-1 [scrollbar-width:none] [&::-webkit-scrollbar]:hidden"
+      >
+        {filteredModels.length ? (
+          filteredModels.map((model) => (
+            <button
+              key={model}
+              type="button"
+              onMouseDown={(event) => event.preventDefault()}
+              onClick={() => {
+                onChange(model);
+                setOpen(false);
+              }}
+              className={cn(
+                "flex w-full items-center gap-2 rounded-sm px-2 py-1.5 text-left font-mono text-xs hover:bg-accent hover:text-accent-foreground",
+                value === model && "bg-accent text-accent-foreground",
+              )}
+            >
+              <Check className={cn("h-3.5 w-3.5", value === model ? "opacity-100" : "opacity-0")} />
+              <span className="truncate">{model}</span>
+            </button>
+          ))
+        ) : (
+          <div className="px-2 py-3 text-xs text-muted-foreground">No registry suggestion. Custom value is allowed.</div>
+        )}
+      </PopoverContent>
+    </Popover>
+  );
+}
+
 export function ModelPicker({
   modelName,
   onModelNameChange,
-  modelsByIde,
-  onModelsByIdeChange,
-  showPerIdeOverrides = true,
+  modelsByHarness,
+  onModelsByHarnessChange,
 }: ModelPickerProps) {
-  const { data: catalog, isLoading } = useModels();
-  const models = useMemo(() => catalog?.models ?? [], [catalog]);
-  const annotated = useMemo(() => annotateForDisplay(models), [models]);
-  const idesWithChoice = useMemo(() => getModelChoiceIdes(), []);
+  const { data: harnesses, defaultHarness } = useHarnesses();
+  const allHarnesses = useMemo(() => harnesses ?? [], [harnesses]);
+  const allModels = Array.from(new Set(allHarnesses.flatMap((harness) => harness.supported_models ?? [])));
+  const overrideEntries = Object.entries(modelsByHarness);
+  const fallbackHarness =
+    (defaultHarness && allHarnesses.some((harness) => harness.name === defaultHarness) ? defaultHarness : undefined) ??
+    allHarnesses[0]?.name ??
+    "";
+  const [selectedHarness, setSelectedHarness] = useState(fallbackHarness);
+  const [selectedModel, setSelectedModel] = useState("");
 
-  function renderSelect(
-    value: string,
-    onChange: (next: string) => void,
-    rows: CatalogModel[],
-    placeholder: string,
-    {
-      includeAuto,
-      autoLabel,
-    }: { includeAuto: boolean; autoLabel: string },
-  ) {
-    return (
-      <Select
-        value={value || AUTO_VALUE}
-        onValueChange={(v) => onChange(v === AUTO_VALUE ? "" : v)}
-      >
-        <SelectTrigger>
-          <SelectValue placeholder={placeholder} />
-        </SelectTrigger>
-        <SelectContent>
-          {includeAuto && (
-            <SelectGroup>
-              <SelectItem value={AUTO_VALUE}>{autoLabel}</SelectItem>
-            </SelectGroup>
-          )}
-          <SelectGroup>
-            <SelectLabel>Models</SelectLabel>
-            {rows.map((m) => {
-              const fm = formatModel({
-                display_name: m.display_name,
-                model_id: m.model_id,
-                release_date: m.release_date,
-                disambiguate: true,
-              });
-              const label = fm.secondary
-                ? `${fm.primary} (${fm.secondary})`
-                : fm.primary;
-              return (
-                <SelectItem key={m.model_id} value={m.model_id}>
-                  {label}
-                  {m.deprecated ? " · deprecated" : ""}
-                </SelectItem>
-              );
-            })}
-          </SelectGroup>
-        </SelectContent>
-      </Select>
-    );
+  useEffect(() => {
+    if (!selectedHarness && fallbackHarness) setSelectedHarness(fallbackHarness);
+  }, [fallbackHarness, selectedHarness]);
+
+  useEffect(() => {
+    setSelectedModel(modelsByHarness[selectedHarness] ?? "");
+  }, [modelsByHarness, selectedHarness]);
+
+  const selectedHarnessMeta = allHarnesses.find((harness) => harness.name === selectedHarness);
+  const selectedModels = selectedHarnessMeta?.supported_models ?? [];
+
+  function setOverride(harness: string, value: string) {
+    const next = { ...modelsByHarness };
+    const trimmed = value.trim();
+    if (trimmed) next[harness] = trimmed;
+    else delete next[harness];
+    onModelsByHarnessChange(next);
   }
 
-  const defaultRows = annotated;
+  function saveOverride() {
+    if (!selectedHarness) return;
+    setOverride(selectedHarness, selectedModel);
+  }
+
+  function removeOverride(harness: string) {
+    const next = { ...modelsByHarness };
+    delete next[harness];
+    onModelsByHarnessChange(next);
+    if (selectedHarness === harness) setSelectedModel("");
+  }
+
+  function editOverride(harness: string, model: string) {
+    setSelectedHarness(harness);
+    setSelectedModel(model);
+  }
+
+  function harnessLabel(name: string) {
+    return allHarnesses.find((harness) => harness.name === name)?.display_name ?? name;
+  }
 
   return (
     <div className="space-y-4">
       <div className="space-y-2">
-        <Label htmlFor="agent-model" className="text-sm font-medium">
+        <Label htmlFor="agent-default-model" className="text-sm font-medium">
           Default model
         </Label>
-        {renderSelect(
-          modelName,
-          onModelNameChange,
-          defaultRows,
-          isLoading ? "Loading models…" : "Select a default model",
-          { includeAuto: true, autoLabel: "auto (let the IDE pick)" },
-        )}
+        <ModelCombobox
+          value={modelName}
+          onChange={onModelNameChange}
+          placeholder="auto (let the harness pick)"
+          models={allModels}
+        />
         <p className="text-xs text-muted-foreground">
-          Used as the fallback for IDEs that accept a model choice and don&apos;t
-          have an explicit override below.
+          Used when no harness override is set. Leave blank to let each harness choose.
         </p>
       </div>
 
-      {showPerIdeOverrides && (
-        <details className="rounded-md border border-border bg-muted/30 p-3">
-          <summary className="cursor-pointer select-none text-xs font-medium text-muted-foreground">
-            Per-IDE overrides{" "}
-            {Object.keys(modelsByIde || {}).length > 0 ? (
-              <span className="ml-1 rounded bg-primary/10 px-1.5 py-0.5 text-[10px] text-primary">
-                {Object.keys(modelsByIde).length} set
-              </span>
+      {allHarnesses.length > 0 ? (
+        <div className="space-y-3 rounded-md border border-border bg-muted/20 p-3">
+          <div className="flex items-start justify-between gap-3">
+            <div className="space-y-1">
+              <Label className="text-sm font-medium">Harness overrides</Label>
+              <p className="text-xs text-muted-foreground">Set exceptions only. Pick a harness, choose or type its model, then save.</p>
+            </div>
+            {overrideEntries.length > 0 ? (
+              <span className="rounded bg-primary/10 px-2 py-1 text-xs text-primary">{overrideEntries.length} set</span>
             ) : null}
-          </summary>
-          <div className="mt-3 grid gap-3 sm:grid-cols-2">
-            {idesWithChoice.map((ide) => {
-              const rows = modelsForIde(models, ide);
-              const value = modelsByIde[ide] ?? "";
-              return (
-                <div key={ide} className="space-y-1.5">
-                  <Label className="text-xs font-medium">
-                    {IDE_DISPLAY_NAMES[ide as IdeName] ?? ide}
-                  </Label>
-                  {renderSelect(
-                    value,
-                    (next) => {
-                      const copy: Record<string, string> = { ...modelsByIde };
-                      if (!next) delete copy[ide];
-                      else copy[ide] = next;
-                      onModelsByIdeChange(copy);
-                    },
-                    rows,
-                    isLoading ? "Loading…" : "Use default",
-                    { includeAuto: true, autoLabel: "Use default" },
-                  )}
-                </div>
-              );
-            })}
           </div>
-          {catalog?.degraded ? (
-            <p className="mt-3 text-xs text-amber-700 dark:text-amber-400">
-              Catalog is in degraded mode (offline snapshot). Saved selections
-              will still install — admins can refresh from the diagnostics
-              page.
-            </p>
+
+          <div className="grid gap-2 md:grid-cols-[minmax(160px,220px)_minmax(0,1fr)_auto]">
+            <PickerSelect
+              value={selectedHarness}
+              onValueChange={setSelectedHarness}
+              placeholder="Select harness"
+              options={allHarnesses.map((harness) => ({ value: harness.name, label: harness.display_name }))}
+            />
+
+            <ModelCombobox
+              value={selectedModel}
+              onChange={setSelectedModel}
+              models={selectedModels}
+              placeholder={selectedHarnessMeta ? `Use default for ${selectedHarnessMeta.display_name}` : "Use default"}
+            />
+
+            <Button type="button" size="sm" onClick={saveOverride} disabled={!selectedHarness || !selectedModel.trim()}>
+              Save
+            </Button>
+          </div>
+
+          {overrideEntries.length > 0 ? (
+            <div className="flex flex-wrap gap-1.5 pt-1">
+              {overrideEntries.map(([harness, model]) => (
+                <Badge key={harness} variant="secondary" className="gap-1.5 pr-1 font-normal">
+                  <button type="button" className="text-left" onClick={() => editOverride(harness, model)}>
+                    <span className="font-medium">{harnessLabel(harness)}</span>: <span className="font-mono">{model}</span>
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => removeOverride(harness)}
+                    className="rounded p-0.5 text-muted-foreground hover:bg-background/60 hover:text-foreground"
+                    aria-label={`Remove ${harnessLabel(harness)} override`}
+                  >
+                    <X className="h-3 w-3" />
+                  </button>
+                </Badge>
+              ))}
+            </div>
           ) : null}
-        </details>
-      )}
+        </div>
+      ) : null}
     </div>
   );
 }

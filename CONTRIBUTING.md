@@ -12,7 +12,7 @@
 Thank you for considering contributing to Observal. Contributions of all kinds are welcome: bug reports, bug fixes, new features, documentation improvements, and tests.
 
 > [!TIP]
-> This page is a quick-start summary. For the full setup walkthrough, architecture notes, and detailed workflows, see the [Development Guide](docs/DEVELOPMENT_GUIDE.md).
+> This page is a quick-start summary. For the full setup walkthrough, architecture notes, and detailed workflows, see the [Development Guide](docs/DEVELOPMENT_GUIDE.md). For new Python tests, follow the [Testing Guide](docs/testing/Testing_Guide.md).
 
 > [!IMPORTANT]
 > **Discord is our primary communication channel.** Join at [discord.observal.io](https://discord.observal.io) and ask questions in **#contributing**, report bugs in **#bug**, or discuss ideas in **#feature-requests**. GitHub issues and PRs are for concrete, actionable items, not exploratory discussion.
@@ -50,7 +50,7 @@ Please read our [Code of Conduct](CODE_OF_CONDUCT.md) and [AI Policy](AI_POLICY.
 ```bash
 git clone https://github.com/YOUR-USERNAME/Observal.git
 cd Observal
-git remote add upstream https://github.com/BlazeUp-AI/Observal.git
+git remote add upstream https://github.com/Observal/Observal.git
 ```
 
 ### Running Locally
@@ -61,8 +61,14 @@ No configuration needed for local development. All settings have working default
 
 ```bash
 cp .env.example .env
-docker compose -f docker/docker-compose.yml up --build -d
+make rebuild-fast
 ```
+
+For normal backend, frontend, and dependency changes, use `make rebuild-fast`. It builds the shared API image once, reuses it for the API, init, and worker services, then builds the web image.
+
+Use `make rebuild` when the Compose topology changes, such as adding services, changing build contexts, changing image names, or updating volumes and networks.
+
+For schema, migration, ClickHouse setup, init path, or worker changes, use `make rebuild-fast` so the shared API image used by `observal-init` and `observal-worker` is refreshed.
 
 Wait for services to be healthy, then:
 
@@ -71,7 +77,7 @@ uv tool install --editable .
 observal auth login
 ```
 
-The API starts at `http://localhost:8000` and the web UI at `http://localhost:3000`. The `.env.example` seeds demo accounts on first startup, log in with `super@demo.example` / `super-changeme` for admin access. See [SETUP.md](SETUP.md) for all credentials.
+The stack starts at `http://localhost` (nginx LB on port 80). The `.env.example` seeds demo accounts on first startup, log in with `super@demo.example` / `super-changeme` for admin access. See [SETUP.md](SETUP.md) for all credentials.
 
 **Frontend only:**
 
@@ -79,16 +85,16 @@ The API starts at `http://localhost:8000` and the web UI at `http://localhost:30
 cd web && pnpm install && pnpm dev
 ```
 
-Set `NEXT_PUBLIC_API_URL=http://localhost:8000` in `web/.env.local` if the backend is on a different host.
+Set `NEXT_PUBLIC_API_URL=http://localhost` in `web/.env.local` if the backend is on a different host.
 
 > [!NOTE]
-> See the [Development Guide](docs/DEVELOPMENT_GUIDE.md) for the full environment setup, eval engine configuration, and troubleshooting steps.
+> See the [Development Guide](docs/DEVELOPMENT_GUIDE.md) for the full environment setup and troubleshooting steps.
 
 ---
 
 ## Finding Work
 
-Check [open issues](https://github.com/BlazeUp-AI/Observal/issues) before starting. Look for **good first issue** if you are new.
+Check [open issues](https://github.com/Observal/Observal/issues) before starting. Look for **good first issue** if you are new.
 
 For larger changes, open an issue or discuss in **#contributing** on Discord before writing code.
 
@@ -146,6 +152,8 @@ make test-v    # verbose
 
 All tests must pass before submitting. Tests mock all external services so Docker is not required. Include tests for any feature or bug fix.
 
+New Python tests should follow the [Testing Guide](docs/testing/Testing_Guide.md). In short, keep tests hermetic, assert behavior over implementation details, use small local helpers for setup, and avoid touching real user configuration.
+
 ### Commit Messages
 
 Follow [Conventional Commits](https://www.conventionalcommits.org/):
@@ -187,7 +195,7 @@ Keep PRs focused on a single concern. Smaller PRs are easier to review and faste
 
 ### Bugs
 
-Search [existing issues](https://github.com/BlazeUp-AI/Observal/issues) first. Include:
+Search [existing issues](https://github.com/Observal/Observal/issues) first. Include:
 
 - Steps to reproduce
 - Expected vs actual behaviour

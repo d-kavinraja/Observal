@@ -5,33 +5,38 @@
 # SPDX-License-Identifier: AGPL-3.0-only
 
 FROM node:24-alpine AS base
+ARG TARGETARCH
+ARG PNPM_VERSION=10.34.4
+ARG PNPM_SHA256_AMD64=15092b4d71f1192f67501116dd87dd20be8c4238434371959820255a374219c1
+ARG PNPM_SHA256_ARM64=9513a31bc1e166f5f6e6dbaadca91fa05b44e919ea53685c754ab0acd5501514
+RUN apk add --no-cache wget && \
+    case "$TARGETARCH" in \
+        amd64) PNPM_ARCH=x64; PNPM_SHA256="$PNPM_SHA256_AMD64" ;; \
+        arm64) PNPM_ARCH=arm64; PNPM_SHA256="$PNPM_SHA256_ARM64" ;; \
+        *) echo "Unsupported architecture: $TARGETARCH" >&2; exit 1 ;; \
+    esac && \
+    wget -q "https://github.com/pnpm/pnpm/releases/download/v${PNPM_VERSION}/pnpm-linuxstatic-${PNPM_ARCH}" -O /usr/local/bin/pnpm && \
+    echo "${PNPM_SHA256}  /usr/local/bin/pnpm" | sha256sum -c - && \
+    chmod +x /usr/local/bin/pnpm
 
 FROM base AS deps
 WORKDIR /app
 COPY package.json pnpm-lock.yaml pnpm-workspace.yaml ./
 COPY web/package.json ./web/
 RUN mkdir -p tests/e2e && echo '{"name":"@observal/e2e","version":"0.0.0","private":true,"devDependencies":{"@playwright/test":"^1.59.1"}}' > tests/e2e/package.json
-RUN corepack enable pnpm && pnpm install --frozen-lockfile
-RUN pnpm --filter web deploy --legacy /app/deployed
+RUN pnpm install --frozen-lockfile
 
 FROM base AS builder
 WORKDIR /app
-COPY --from=deps /app/deployed ./
-COPY web/ .
-ENV NEXT_TELEMETRY_DISABLED=1
-ARG NEXT_PUBLIC_API_URL="http://observal-lb:80"
-ENV NEXT_PUBLIC_API_URL=$NEXT_PUBLIC_API_URL
-RUN corepack enable pnpm && pnpm run build
+COPY --from=deps /app/node_modules ./node_modules
+COPY --from=deps /app/web/node_modules ./web/node_modules
+COPY web/ ./web/
+COPY docs/ ./docs/
+WORKDIR /app/web
+RUN pnpm run build
 
-FROM base AS runner
-WORKDIR /app
-ENV NODE_ENV=production
-ENV NEXT_TELEMETRY_DISABLED=1
-RUN addgroup --system --gid 1001 nodejs && adduser --system --uid 1001 nextjs
-COPY --from=builder /app/public ./public
-COPY --from=builder --chown=nextjs:nodejs /app/.next/standalone ./
-COPY --from=builder --chown=nextjs:nodejs /app/.next/static ./.next/static
-USER nextjs
+FROM nginx:alpine AS runner
+COPY --from=builder /app/web/dist /usr/share/nginx/html
+COPY docker/nginx-spa.conf /etc/nginx/conf.d/default.conf
 EXPOSE 3000
-ENV PORT=3000
-CMD ["node", "server.js"]
+CMD ["nginx", "-g", "daemon off;"]

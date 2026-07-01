@@ -15,7 +15,7 @@
 | 3 | Reviewer A | `reviewer` | Reviews components + agents via CLI |
 | 4 | Reviewer B | `reviewer` | Reviews components + agents via UI |
 | 5 | User A | `user` | Submits components, creates agents |
-| 6 | User B | `user` | Pulls agents, tests in IDEs, leaves ratings |
+| 6 | User B | `user` | Pulls agents, tests in harnesses, leaves ratings |
 | 7 | User C | `user` | Also pulls agents (verifies download count increments), verifies registry visibility |
 
 ---
@@ -23,19 +23,19 @@
 ## Prerequisites
 
 > [!NOTE]
-> You need Docker Engine ≥ 24.0 with Compose v2 (`docker compose`, not `docker-compose`). Homebrew's Docker formula is outdated — install [Docker Desktop](https://docs.docker.com/get-docker/) or use your distro's upstream packages. Verify with `docker version` and `docker compose version`.
+> You need Docker Engine ≥ 24.0 with Compose v2 (`docker compose`, not `docker-compose`). Homebrew's Docker formula is outdated. Install [Docker Desktop](https://docs.docker.com/get-docker/) or use your distro's upstream packages. Verify with `docker version` and `docker compose version`.
 
 ## 1. Environment Setup
 - [ ] `make rebuild-clean`
 - [ ] Install the CLI from source:
   ```bash
-  git clone https://github.com/BlazeUp-AI/Observal.git
+  git clone https://github.com/Observal/Observal.git
   cd Observal
   uv tool install --editable .
   ```
 - [ ] Verify: `observal --version`
 
-## 2. Super Admin — User Management
+## 2. Super Admin - User Management
 - [ ] Log in as super admin
 - [ ] Create Admin account
 - [ ] Create Reviewer A account
@@ -44,7 +44,7 @@
 - [ ] Create User B account
 - [ ] Create User C account
 
-## 3. User A — Add Components (Drafts → Submit)
+## 3. User A - Add Components (Drafts → Submit)
 
 ### Via UI
 - [ ] Log in as User A via UI
@@ -62,26 +62,26 @@
 - [ ] Submit Sandbox draft for review via CLI
 - [ ] Submit Hook draft for review via CLI
 
-## 4. Reviewer A — Review Components via CLI
+## 4. Reviewer A - Review Components via CLI
 - [ ] Log in as Reviewer A via CLI (`observal auth login`)
 - [ ] List pending submissions (`observal admin review list`)
 - [ ] Approve some components via CLI (`observal admin review approve`)
 - [ ] Reject some components via CLI with reasons (`observal admin review reject`)
 
-## 5. Reviewer B — Review Components via UI
+## 5. Reviewer B - Review Components via UI
 - [ ] Log in as Reviewer B via UI
 - [ ] View pending submissions in review queue
 - [ ] Click a pending component → click "Review" button on detail page
 - [ ] Approve some components via UI
 - [ ] Reject some components via UI with reasons
 
-## 6. User A — Check Component Review Status
+## 6. User A - Check Component Review Status
 - [ ] Log back in as User A
 - [ ] Verify accepted components show as accepted
 - [ ] Verify rejected components show as rejected
 - [ ] Verify draft components still show as drafts
 
-## 7. User A — Create Agents with Components (Drafts → Submit)
+## 7. User A - Create Agents with Components (Drafts → Submit)
 
 ### Via UI
 - [ ] Create 3 agents via UI using approved components
@@ -93,49 +93,48 @@
 - [ ] Save at least 1 agent as draft first, verify it appears in drafts
 - [ ] Submit agents for review
 
-## 8. Reviewer A — Review Agents via CLI
+## 8. Reviewer A - Review Agents via CLI
 - [ ] Log in as Reviewer A via CLI
 - [ ] List pending agent submissions (`observal admin review list`)
 - [ ] Approve some agents via CLI (`observal admin review approve`)
 - [ ] Reject some agents via CLI with reasons (`observal admin review reject`)
 
-## 9. Reviewer B — Review Agents via UI
+## 9. Reviewer B - Review Agents via UI
 - [ ] Log in as Reviewer B via UI
 - [ ] View pending agent submissions in review queue
 - [ ] Click a pending agent → click "Review" button on detail page
 - [ ] Approve some agents via UI
 - [ ] Reject some agents via UI with reasons
 
-## 10. User A — Check Agent Review Status
+## 10. User A - Check Agent Review Status
 - [ ] Log back in as User A
 - [ ] Verify approved agents show as approved
 - [ ] Verify rejected agents show as rejected
 
-## 11. User B — Agent Pull & Downloads
+## 11. User B - Agent Pull & Downloads
 - [ ] Log in as User B via CLI (`observal auth login`)
-- [ ] Pull/install an agent via CLI (`observal agent pull <agent> --ide <ide>`)
+- [ ] Pull/install an agent via CLI (`observal agent pull <agent> --harness <harness>`)
 - [ ] Verify download count increases (0 → 1)
 
-## 12. User C — Agent Pull & Downloads
+## 12. User C - Agent Pull & Downloads
 - [ ] Log in as User C via CLI (`observal auth login`)
-- [ ] Pull/install the same agent via CLI (`observal agent pull <agent> --ide <ide>`)
+- [ ] Pull/install the same agent via CLI (`observal agent pull <agent> --harness <harness>`)
 - [ ] Verify download count increases (1 → 2)
 
-## 13. User B — Multi-IDE Long Prompt Test
+## 13. User B - Multi-harness Long Prompt Test
 - [ ] Test a long prompt involving multiple steps and tool calls in:
   - [ ] Cursor
   - [ ] Kiro
   - [ ] Claude Code
   - [ ] Codex
-  - [ ] Gemini CLI
   - [ ] Copilot
   - [ ] Open Code
 
-## 14. User B — Self Traces
+## 14. User B - Self Traces
 - [ ] Check that User B can see their own traces
-- [ ] Verify traces appear for each IDE tested
+- [ ] Verify traces appear for each harness tested
 
-## 15. Admin — Multi-User Traces
+## 15. Admin - Multi-User Traces
 - [ ] Log in as Admin
 - [ ] Verify admin can see traces from User B
 - [ ] Verify admin can see traces from User C
@@ -149,18 +148,18 @@
 - [ ] Verify aggregate rating summary displays correctly
 
 ## 17. CLI -- Scan, Doctor & Patch
-- [ ] Run `observal scan` to discover IDE configs (read-only)
-- [ ] Run `observal doctor patch --all --all-ides --dry-run` to preview instrumentation
-- [ ] Run `observal doctor patch --all --all-ides` to instrument IDEs
-- [ ] Run `observal self doctor` to check IDE compatibility
+- [ ] Run `observal scan` to discover harness configs (read-only)
+- [ ] Run `observal doctor patch --all --all-harnesses --dry-run` to preview instrumentation
+- [ ] Run `observal doctor patch --all --all-harnesses` to instrument harnesses
+- [ ] Run `observal self doctor` to check harness compatibility
 
-## 18. Admin — Agent Registry Management
+## 18. Admin - Agent Registry Management
 - [ ] Log in as Admin
 - [ ] Go to agent registry
 - [ ] Archive some agents
 - [ ] Delete some agents
 
-## 19. User C — Verify Registry Visibility
+## 19. User C - Verify Registry Visibility
 - [ ] Log in as User C
 - [ ] Verify archived agents are not visible in the registry
 - [ ] Verify deleted agents are not visible in the registry
@@ -169,7 +168,7 @@
 
 ## Test Matrix
 
-The sections below must be run **twice** — once per configuration:
+The sections below must be run **twice**, once per configuration:
 
 | Case | Global Tracing | Registered-Agents-Only | What it validates |
 |------|---------------|------------------------|-------------------|
@@ -182,7 +181,7 @@ Run sections 20–30 once with Case A, then reset and repeat with Case B.
 
 ---
 
-## 20. Admin — Trace Privacy Toggle
+## 20. Admin - Trace Privacy Toggle
 
 - [ ] Log in as Admin
 - [ ] Go to Settings → Trace Privacy
@@ -195,7 +194,7 @@ Run sections 20–30 once with Case A, then reset and repeat with Case B.
 
 ---
 
-## 21. User A — Edit Components & Publish New Versions
+## 21. User A - Edit Components & Publish New Versions
 
 ### Via UI
 - [ ] Log in as User A
@@ -216,7 +215,7 @@ Run sections 20–30 once with Case A, then reset and repeat with Case B.
 
 ---
 
-## 22. Reviewer B — Review Component Versions via UI (with Diff)
+## 22. Reviewer B - Review Component Versions via UI (with Diff)
 
 - [ ] Log in as Reviewer B
 - [ ] Go to review queue → see pending component versions from Section 21
@@ -226,7 +225,7 @@ Run sections 20–30 once with Case A, then reset and repeat with Case B.
 
 ---
 
-## 23. User A — Edit Agent & Release New Version
+## 23. User A - Edit Agent & Release New Version
 
 ### Via UI
 - [ ] Log in as User A
@@ -243,7 +242,7 @@ Run sections 20–30 once with Case A, then reset and repeat with Case B.
 
 ---
 
-## 24. Reviewer A — Review Agent Versions via CLI
+## 24. Reviewer A - Review Agent Versions via CLI
 
 - [ ] Log in as Reviewer A via CLI
 - [ ] Run `observal admin review list` → see pending agent version from Section 23
@@ -251,20 +250,20 @@ Run sections 20–30 once with Case A, then reset and repeat with Case B.
 
 ---
 
-## 25. User B — Pull Updated Agent & Verify New Version
+## 25. User B - Pull Updated Agent & Verify New Version
 
 - [ ] Log in as User B via CLI (`observal auth login`)
-- [ ] Run `observal agent pull <agent-slug> --ide <ide>` (note: command moved from `observal pull`)
+- [ ] Run `observal agent pull <agent-slug> --harness <harness>` (note: command moved from `observal pull`)
 - [ ] Verify the pulled config reflects the NEW version's changes (updated model, components, etc.)
-- [ ] Verify per-agent hooks are installed correctly for the chosen IDE
+- [ ] Verify per-agent hooks are installed correctly for the chosen harness
 - [ ] Verify download count increments
-- [ ] Use the pulled agent in an IDE → generate a trace
+- [ ] Use the pulled agent in an harness → generate a trace
 - [ ] Verify the trace shows the correct agent version (agent name should reflect the new version)
 - [ ] Switch to Admin → verify the trace's agent_version matches what was pulled
 
 ---
 
-## 26. User A — Edit & Resubmit Rejected Items
+## 26. User A - Edit & Resubmit Rejected Items
 
 - [ ] Log in as User A
 - [ ] Navigate to the rejected component version from Section 22
@@ -281,17 +280,17 @@ Run sections 20–30 once with Case A, then reset and repeat with Case B.
 
 - [ ] Log in as Admin → Settings → enable "Registered Agents Only"
 - [ ] Switch to User B
-- [ ] Use an IDE with a **registered** agent → generate a trace
+- [ ] Use an harness with a **registered** agent → generate a trace
 - [ ] Verify the trace appears in User B's trace list
-- [ ] Use an IDE with an **unregistered** agent (any agent not in the registry) → generate activity
+- [ ] Use an harness with an **unregistered** agent (any agent not in the registry) → generate activity
 - [ ] Verify **no trace** is ingested for the unregistered agent
 - [ ] Run `observal scan` → verify it warns/skips unregistered agents
-- [ ] Run `observal doctor patch --all --all-ides` → verify it only instruments registered agents
+- [ ] Run `observal doctor patch --all --all-harnesses` → verify it only instruments registered agents
 - [ ] Switch to Admin → verify traces only exist for registered agent activity
 
 ---
 
-## 28. User A — Edit Pending Submissions (Edit Lock)
+## 28. User A - Edit Pending Submissions (Edit Lock)
 
 > PR #712 / Issue #663: Owners can edit/delete pending items. Editing acquires a 30-min lock that hides the item from the review queue.
 
@@ -329,12 +328,12 @@ Run sections 20–30 once with Case A, then reset and repeat with Case B.
 
 ---
 
-## 29. Auth — Token Revocation Stops Traces
+## 29. Auth - Token Revocation Stops Traces
 
 - [ ] Log in as User B via CLI (`observal auth login`)
-- [ ] Use an IDE with an agent → verify traces are being captured
+- [ ] Use an harness with an agent → verify traces are being captured
 - [ ] Run `observal auth logout`
-- [ ] Use the same IDE with the same agent → generate activity
+- [ ] Use the same harness with the same agent → generate activity
 - [ ] Verify **no new traces** appear (token revoked server-side, telemetry rejected)
 
 ---

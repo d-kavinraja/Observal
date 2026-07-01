@@ -56,6 +56,23 @@ class LoginRequest(BaseModel):
         return v.strip().lower() if isinstance(v, str) else v
 
 
+class RegisterRequest(BaseModel):
+    email: EmailStr
+    name: str
+    username: str | None = None
+    password: str
+
+    @field_validator("email", mode="before")
+    @classmethod
+    def _normalize(cls, v: str) -> str:
+        return _normalize_email(v)
+
+    @field_validator("username", mode="before")
+    @classmethod
+    def _validate_un(cls, v: str | None) -> str | None:
+        return _validate_username(v)
+
+
 class UserResponse(BaseModel):
     id: uuid.UUID
     email: str
@@ -133,6 +150,8 @@ class UsernameUpdateRequest(BaseModel):
 
 class DeviceAuthRequest(BaseModel):
     client_id: str | None = None
+    sso: bool = False
+    provider: str | None = None
 
 
 class DeviceAuthResponse(BaseModel):

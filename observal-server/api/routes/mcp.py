@@ -5,24 +5,28 @@
 # SPDX-FileCopyrightText: 2026 Shreem Seth <shreemseth26@gmail.com>
 # SPDX-License-Identifier: AGPL-3.0-only
 
-import logging
 from datetime import UTC, datetime
 
-from fastapi import APIRouter, BackgroundTasks, Depends, HTTPException, Query, Request
-from sqlalchemy import delete, select
+from fastapi import APIRouter, BackgroundTasks, Depends, HTTPException, Query, Request, Response
+from fastapi_cache.decorator import cache
+from loguru import logger as optic
+from sqlalchemy import delete, func, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
+import services.dynamic_settings as ds
 from api.deps import (
-    ROLE_HIERARCHY,
     apply_visibility_filter,
     check_listing_visibility,
+    commit_or_name_conflict,
     get_db,
+    get_effective_component_permission,
     optional_current_user,
     require_role,
     resolve_listing,
 )
+from api.routes._component_archive import archive_listing, archived_install_warning, unarchive_listing
 from api.routes.component_versions import create_version_router
-from api.sanitize import escape_like
+from api.search import keyword_search
 from database import async_session
 from models.mcp import ListingStatus, McpDownload, McpListing, McpValidationResult, McpVersion
 from models.user import User, UserRole
@@ -38,13 +42,11 @@ from schemas.mcp import (
     McpSubmitRequest,
     McpUpdateRequest,
 )
-from services.audit_helpers import audit
 from services.config_generator import generate_config
 from services.editing_lock import _is_lock_expired, acquire_edit_lock, release_edit_lock
 from services.mcp_validator import analyze_repo, run_validation
 
 router = APIRouter(prefix="/api/v1/mcps", tags=["mcp"])
-logger = logging.getLogger(__name__)
 
 
 @router.post("/analyze", response_model=McpAnalyzeResponse)
@@ -52,13 +54,14 @@ async def analyze_mcp(
     req: McpAnalyzeRequest,
     current_user: User = Depends(require_role(UserRole.user)),
 ):
+    optic.trace("user_id={}", current_user.id)
     result = await analyze_repo(req.git_url)
-    await audit(current_user, "mcp.analyze", resource_type="mcp", detail=req.git_url)
     return McpAnalyzeResponse(**result)
 
 
 async def _store_client_analysis(listing: McpListing, analysis: ClientAnalysis, db: AsyncSession) -> None:
     """Store validation results from client-side (CLI) analysis."""
+    optic.trace("listing={}, analysis={}", listing, analysis)
     await db.execute(delete(McpValidationResult).where(McpValidationResult.listing_id == listing.id))
 
     has_entry = bool(analysis.entry_point or analysis.framework)
@@ -98,11 +101,12 @@ async def _store_client_analysis(listing: McpListing, analysis: ClientAnalysis, 
             )
         )
 
-    await db.commit()
+    await commit_or_name_conflict(db, "listing")
 
 
 async def _run_validation_background(listing_id: str) -> None:
     """Run validation in the background with its own DB session."""
+    optic.trace("listing_id={}", listing_id)
     async with async_session() as db:
         result = await db.execute(select(McpListing).where(McpListing.id == listing_id))
         listing = result.scalar_one_or_none()
@@ -111,7 +115,7 @@ async def _run_validation_background(listing_id: str) -> None:
         try:
             await run_validation(listing, db)
         except Exception:
-            logger.exception("Background validation failed for listing %s", listing_id)
+            optic.error("Background validation failed for listing {}", listing_id)
 
 
 @router.post("/submit", response_model=McpListingResponse)
@@ -121,25 +125,16 @@ async def submit_mcp(
     db: AsyncSession = Depends(get_db),
     current_user: User = Depends(require_role(UserRole.user)),
 ):
-    # Prevent duplicate names for the same user.
-    # Pending/rejected listings are replaced automatically so the user isn't
-    # blocked when re-submitting after a mistake.  Approved listings are
-    # protected — use the update flow instead.
-    existing = (
-        (
-            await db.execute(
-                select(McpListing).where(McpListing.name == req.name, McpListing.submitted_by == current_user.id)
-            )
-        )
-        .scalars()
-        .first()
-    )
+    # Names are global. The original submitter can replace a draft, but nobody
+    # can take another user's name.
+    optic.debug("mcp submit: name={}", req.name)
+    existing = (await db.execute(select(McpListing).where(McpListing.name == req.name))).scalars().first()
     if existing:
-        if existing.status == ListingStatus.approved:
-            raise HTTPException(status_code=409, detail=f"You already have an approved listing named '{req.name}'")
-        # Replace the old pending/rejected listing
-        await db.delete(existing)
-        await db.flush()
+        if existing.submitted_by == current_user.id and existing.status != ListingStatus.approved:
+            await db.delete(existing)
+            await db.flush()
+        else:
+            raise HTTPException(status_code=409, detail=f"An approved listing named '{req.name}' already exists")
 
     listing = McpListing(
         name=req.name,
@@ -164,7 +159,7 @@ async def submit_mcp(
         headers=[h.model_dump() for h in req.headers] if req.headers else None,
         auto_approve=req.auto_approve,
         environment_variables=[ev.model_dump() for ev in req.environment_variables],
-        supported_ides=req.supported_ides,
+        supported_harnesses=req.supported_harnesses,
         setup_instructions=req.setup_instructions,
         changelog=req.changelog,
         source_url=req.git_url,
@@ -176,30 +171,31 @@ async def submit_mcp(
     await db.flush()
 
     listing.latest_version_id = version.id
-    await db.commit()
+    await commit_or_name_conflict(db, "listing")
     await db.refresh(listing)
 
     if req.client_analysis:
-        # CLI already cloned and analyzed locally — store results directly
+        # CLI already cloned and analyzed locally - store results directly
         await _store_client_analysis(listing, req.client_analysis, db)
     elif req.git_url:
         # Only run background validation if we have a git URL to clone
         background_tasks.add_task(_run_validation_background, str(listing.id))
-    # Direct config submissions (no git_url) skip validation — config is user-provided
-
-    await audit(
-        current_user, "mcp.submit", resource_type="mcp", resource_id=str(listing.id), resource_name=listing.name
-    )
+    # Direct config submissions (no git_url) skip validation - config is user-provided
     return McpListingResponse.model_validate(listing)
 
 
 @router.get("", response_model=list[McpListingSummary])
+@cache(expire=ds.get_sync_int("data.cache_ttl_registry", 30), namespace="registry")
 async def list_mcps(
+    response: Response,
     category: str | None = Query(None),
     search: str | None = Query(None),
+    limit: int = Query(50, ge=1, le=200),
+    offset: int = Query(0, ge=0),
     db: AsyncSession = Depends(get_db),
     current_user: User | None = Depends(optional_current_user),
 ):
+    optic.debug("mcp list: search={}", search)
     stmt = (
         select(McpListing)
         .join(McpVersion, McpListing.latest_version_id == McpVersion.id)
@@ -207,13 +203,29 @@ async def list_mcps(
     )
     if category:
         stmt = stmt.where(McpListing.category == category)
+    search_rank = None
     if search:
-        safe = escape_like(search)
-        stmt = stmt.where(McpListing.name.ilike(f"%{safe}%") | McpVersion.description.ilike(f"%{safe}%"))
+        search_filter, search_rank = keyword_search(
+            search,
+            [
+                McpListing.name,
+                McpListing.category,
+                McpVersion.description,
+                McpVersion.framework,
+                McpVersion.setup_instructions,
+            ],
+            name_field=McpListing.name,
+        )
+        if search_filter is not None:
+            stmt = stmt.where(search_filter)
     stmt = apply_visibility_filter(stmt, McpListing, current_user)
-    result = await db.execute(stmt.order_by(McpListing.created_at.desc()))
+    total = await db.scalar(select(func.count()).select_from(stmt.subquery()))
+    order_by = [McpListing.created_at.desc()]
+    if search_rank is not None:
+        order_by.insert(0, search_rank.desc())
+    result = await db.execute(stmt.order_by(*order_by).limit(limit).offset(offset))
     listings = [McpListingSummary.model_validate(r) for r in result.scalars().all()]
-    await audit(None, "mcp.list", resource_type="mcp")
+    response.headers["X-Total-Count"] = str(total or 0)
     return listings
 
 
@@ -222,10 +234,10 @@ async def my_mcps(
     db: AsyncSession = Depends(get_db),
     current_user: User = Depends(require_role(UserRole.user)),
 ):
+    optic.debug("my_mcps called")
     stmt = select(McpListing).where(McpListing.submitted_by == current_user.id).order_by(McpListing.created_at.desc())
     result = await db.execute(stmt)
     listings = [McpListingSummary.model_validate(r) for r in result.scalars().all()]
-    await audit(current_user, "mcp.my_list", resource_type="mcp")
     return listings
 
 
@@ -235,22 +247,21 @@ async def get_mcp(
     db: AsyncSession = Depends(get_db),
     current_user: User | None = Depends(optional_current_user),
 ):
+    optic.debug("mcp get: listing_id={}", listing_id)
     listing = await resolve_listing(McpListing, listing_id, db, require_status=ListingStatus.approved)
     if listing:
-        await audit(
-            current_user, "mcp.view", resource_type="mcp", resource_id=str(listing.id), resource_name=listing.name
-        )
-        return McpListingResponse.model_validate(listing)
+        resp = McpListingResponse.model_validate(listing)
+        resp.user_permission = get_effective_component_permission(listing, current_user)
+        return resp
 
     listing = await resolve_listing(McpListing, listing_id, db)
     if not listing:
         raise HTTPException(status_code=404, detail="Listing not found")
 
     if check_listing_visibility(listing, current_user):
-        await audit(
-            current_user, "mcp.view", resource_type="mcp", resource_id=str(listing.id), resource_name=listing.name
-        )
-        return McpListingResponse.model_validate(listing)
+        resp = McpListingResponse.model_validate(listing)
+        resp.user_permission = get_effective_component_permission(listing, current_user)
+        return resp
 
     raise HTTPException(status_code=404, detail="Listing not found")
 
@@ -263,29 +274,41 @@ async def install_mcp(
     db: AsyncSession = Depends(get_db),
     current_user: User = Depends(require_role(UserRole.user)),
 ):
+    optic.debug("mcp install: listing_id={}", listing_id)
     listing = await resolve_listing(McpListing, listing_id, db, require_status=ListingStatus.approved)
     if not listing:
         listing = await resolve_listing(McpListing, listing_id, db)
-        if not listing or listing.submitted_by != current_user.id:
+        if not listing or not check_listing_visibility(listing, current_user):
+            raise HTTPException(status_code=404, detail="Listing not found or not approved")
+        if (
+            listing.status != ListingStatus.archived
+            and get_effective_component_permission(listing, current_user) != "owner"
+        ):
             raise HTTPException(status_code=404, detail="Listing not found or not approved")
 
-    db.add(McpDownload(listing_id=listing.id, user_id=current_user.id, ide=req.ide))
-    await db.commit()
+    warnings = []
+    if listing.status == ListingStatus.archived:
+        warnings.append(archived_install_warning("MCP", listing.name))
+    if listing.setup_instructions:
+        warnings.append(f"MCP '{listing.name}' requires local setup before use:\n{listing.setup_instructions}")
+
+    db.add(McpDownload(listing_id=listing.id, user_id=current_user.id, harness=req.harness))
+    latest_version = getattr(listing, "latest_version", None)
+    if latest_version:
+        latest_version.download_count += 1
+    await commit_or_name_conflict(db, "listing")
 
     from api.routes.config import derive_endpoints
 
-    endpoints = derive_endpoints(request)
+    endpoints = await derive_endpoints(request)
     snippet = generate_config(
         listing,
-        req.ide,
-        observal_url=endpoints["otlp_http"],
+        req.harness,
+        observal_url=endpoints["api"],
         env_values=req.env_values,
         header_values=req.header_values,
     )
-    await audit(
-        current_user, "mcp.install", resource_type="mcp", resource_id=str(listing.id), resource_name=listing.name
-    )
-    return McpInstallResponse(listing_id=listing.id, ide=req.ide, config_snippet=snippet)
+    return McpInstallResponse(listing_id=listing.id, harness=req.harness, config_snippet=snippet, warnings=warnings)
 
 
 @router.post("/draft", response_model=McpListingResponse)
@@ -294,6 +317,7 @@ async def save_mcp_draft(
     db: AsyncSession = Depends(get_db),
     current_user: User = Depends(require_role(UserRole.user)),
 ):
+    optic.trace("req={}", req)
     listing = McpListing(
         name=req.name,
         category=req.category,
@@ -317,7 +341,7 @@ async def save_mcp_draft(
         headers=[h.model_dump() for h in req.headers] if req.headers else None,
         auto_approve=req.auto_approve,
         environment_variables=[ev.model_dump() for ev in req.environment_variables],
-        supported_ides=req.supported_ides,
+        supported_harnesses=req.supported_harnesses,
         setup_instructions=req.setup_instructions,
         changelog=req.changelog,
         source_url=req.git_url,
@@ -329,11 +353,8 @@ async def save_mcp_draft(
     await db.flush()
 
     listing.latest_version_id = version.id
-    await db.commit()
+    await commit_or_name_conflict(db, "listing")
     await db.refresh(listing)
-    await audit(
-        current_user, "mcp.draft.create", resource_type="mcp", resource_id=str(listing.id), resource_name=listing.name
-    )
     return McpListingResponse.model_validate(listing)
 
 
@@ -344,10 +365,11 @@ async def update_mcp_draft(
     db: AsyncSession = Depends(get_db),
     current_user: User = Depends(require_role(UserRole.user)),
 ):
+    optic.trace("listing_id={}", listing_id)
     listing = await resolve_listing(McpListing, listing_id, db)
     if not listing:
         raise HTTPException(status_code=404, detail="Listing not found")
-    if listing.submitted_by != current_user.id:
+    if get_effective_component_permission(listing, current_user) != "owner":
         raise HTTPException(status_code=403, detail="Not the listing owner")
     if listing.status not in (ListingStatus.draft, ListingStatus.rejected, ListingStatus.pending):
         raise HTTPException(status_code=400, detail="Only draft, rejected, or pending listings can be edited")
@@ -366,7 +388,7 @@ async def update_mcp_draft(
         "url",
         "auto_approve",
         "transport",
-        "supported_ides",
+        "supported_harnesses",
         "setup_instructions",
         "changelog",
     ):
@@ -395,15 +417,8 @@ async def update_mcp_draft(
         if val is not None:
             setattr(listing, field, val)
 
-    await db.commit()
+    await commit_or_name_conflict(db, "listing")
     await db.refresh(listing)
-    if listing.status == ListingStatus.pending:
-        action = "mcp.pending.update"
-    elif listing.status == ListingStatus.rejected:
-        action = "mcp.rejected.update"
-    else:
-        action = "mcp.draft.update"
-    await audit(current_user, action, resource_type="mcp", resource_id=str(listing.id), resource_name=listing.name)
     return McpListingResponse.model_validate(listing)
 
 
@@ -413,10 +428,11 @@ async def start_edit_mcp(
     db: AsyncSession = Depends(get_db),
     current_user: User = Depends(require_role(UserRole.user)),
 ):
+    optic.trace("listing_id={}", listing_id)
     listing = await resolve_listing(McpListing, listing_id, db)
     if not listing:
         raise HTTPException(status_code=404, detail="Listing not found")
-    if listing.submitted_by != current_user.id:
+    if get_effective_component_permission(listing, current_user) != "owner":
         raise HTTPException(status_code=403, detail="Not the listing owner")
     ver = listing.latest_version
     if not ver:
@@ -426,7 +442,7 @@ async def start_edit_mcp(
     # Re-fetch with row-level lock to prevent TOCTOU race
     ver = (await db.execute(select(McpVersion).where(McpVersion.id == ver.id).with_for_update())).scalar_one()
     acquire_edit_lock(ver, current_user.id)
-    await db.commit()
+    await commit_or_name_conflict(db, "listing")
     return {"status": "locked"}
 
 
@@ -436,16 +452,17 @@ async def cancel_edit_mcp(
     db: AsyncSession = Depends(get_db),
     current_user: User = Depends(require_role(UserRole.user)),
 ):
+    optic.trace("listing_id={}", listing_id)
     listing = await resolve_listing(McpListing, listing_id, db)
     if not listing:
         raise HTTPException(status_code=404, detail="Listing not found")
-    if listing.submitted_by != current_user.id:
+    if get_effective_component_permission(listing, current_user) != "owner":
         raise HTTPException(status_code=403, detail="Not the listing owner")
     ver = listing.latest_version
     if not ver:
         raise HTTPException(status_code=400, detail="Listing has no version")
     release_edit_lock(ver, current_user.id)
-    await db.commit()
+    await commit_or_name_conflict(db, "listing")
     return {"status": "unlocked"}
 
 
@@ -455,10 +472,11 @@ async def submit_mcp_draft(
     db: AsyncSession = Depends(get_db),
     current_user: User = Depends(require_role(UserRole.user)),
 ):
+    optic.trace("listing_id={}", listing_id)
     listing = await resolve_listing(McpListing, listing_id, db)
     if not listing:
         raise HTTPException(status_code=404, detail="Listing not found")
-    if listing.submitted_by != current_user.id:
+    if get_effective_component_permission(listing, current_user) != "owner":
         raise HTTPException(status_code=403, detail="Not the listing owner")
     if listing.status not in (ListingStatus.draft, ListingStatus.rejected):
         raise HTTPException(status_code=400, detail="Listing is not a draft")
@@ -469,55 +487,27 @@ async def submit_mcp_draft(
         raise HTTPException(status_code=400, detail="At least one of git_url, command, or url is required")
 
     listing.status = ListingStatus.pending
-    await db.commit()
+    await commit_or_name_conflict(db, "listing")
     await db.refresh(listing)
-    await audit(
-        current_user, "mcp.draft.submit", resource_type="mcp", resource_id=str(listing.id), resource_name=listing.name
-    )
     return McpListingResponse.model_validate(listing)
 
 
-@router.delete("/{listing_id}")
-async def delete_mcp(
+@router.patch("/{listing_id}/archive")
+async def archive_mcp(
     listing_id: str,
     db: AsyncSession = Depends(get_db),
     current_user: User = Depends(require_role(UserRole.user)),
 ):
-    from models.feedback import Feedback
+    return await archive_listing(McpListing, listing_id, db, current_user, "listing")
 
-    listing = await resolve_listing(McpListing, listing_id, db)
-    if not listing:
-        raise HTTPException(status_code=404, detail="Listing not found")
-    is_admin = ROLE_HIERARCHY.get(current_user.role, 999) <= ROLE_HIERARCHY[UserRole.admin]
-    if listing.submitted_by != current_user.id and not is_admin:
-        raise HTTPException(status_code=403, detail="Not authorized")
-    if listing.status == ListingStatus.approved and not is_admin:
-        raise HTTPException(status_code=400, detail="Cannot delete an approved listing. Contact an admin.")
 
-    for r in (
-        (await db.execute(select(Feedback).where(Feedback.listing_id == listing.id, Feedback.listing_type == "mcp")))
-        .scalars()
-        .all()
-    ):
-        await db.delete(r)
-    for r in (await db.execute(select(McpDownload).where(McpDownload.listing_id == listing.id))).scalars().all():
-        await db.delete(r)
-
-    # Break the circular FK (listing → latest_version → listing) before delete
-    listing_name = listing.name
-    listing.latest_version_id = None
-    listing.latest_version = None
-    await db.flush()
-    # Delete versions explicitly to avoid SQLAlchemy circular dependency detection
-    for ver in list(listing.versions):
-        await db.delete(ver)
-    await db.flush()
-    await db.delete(listing)
-    await db.commit()
-    await audit(
-        current_user, "mcp.delete", resource_type="mcp", resource_id=str(listing_id), resource_name=listing_name
-    )
-    return {"deleted": str(listing_id)}
+@router.patch("/{listing_id}/unarchive")
+async def unarchive_mcp(
+    listing_id: str,
+    db: AsyncSession = Depends(get_db),
+    current_user: User = Depends(require_role(UserRole.user)),
+):
+    return await unarchive_listing(McpListing, listing_id, db, current_user, "listing")
 
 
 # --- Version sub-routes ---

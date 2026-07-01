@@ -4,7 +4,7 @@
 
 # Observal Enterprise CLI & API Reference
 
-Enterprise features are enabled by setting `DEPLOYMENT_MODE=enterprise` in your `.env`. These features require the [Observal Enterprise License](../LICENSE).
+Enterprise features are enabled by setting `OBSERVAL_LICENSE_KEY` in your `.env`. These features require the [Observal Enterprise License](../LICENSE).
 
 For the core CLI reference, see [docs/cli/README.md](../../docs/cli/README.md). For setup instructions, see [docs/self-hosting/README.md](../../docs/self-hosting/README.md).
 
@@ -12,23 +12,23 @@ For the core CLI reference, see [docs/cli/README.md](../../docs/cli/README.md). 
 
 ## Enterprise Configuration
 
-| Variable | Default | Description |
+| Setting | Default | Description |
 |----------|---------|-------------|
-| `DEPLOYMENT_MODE` | `local` | Set to `enterprise` to enable SSO-only auth, SCIM, and audit logging |
-| `OAUTH_CLIENT_ID` | disabled | OAuth/OIDC client ID (required in enterprise mode) |
-| `OAUTH_CLIENT_SECRET` | disabled | OAuth/OIDC client secret |
-| `OAUTH_SERVER_METADATA_URL` | disabled | OIDC discovery URL |
-| `SSO_ONLY` | `false` | When true, disables password auth entirely; only SSO login allowed |
-| `SAML_IDP_ENTITY_ID` | disabled | IdP entity ID for SAML SSO |
-| `SAML_IDP_SSO_URL` | disabled | IdP single sign-on URL |
-| `SAML_IDP_X509_CERT` | disabled | IdP signing certificate (base64) |
-| `SAML_SP_ENTITY_ID` | auto | SP entity ID (derived from FRONTEND_URL if empty) |
-| `SAML_SP_ACS_URL` | auto | SP ACS URL (derived from FRONTEND_URL if empty) |
-| `SAML_JIT_PROVISIONING` | `true` | Auto-create users on first SAML login |
-| `SAML_DEFAULT_ROLE` | `user` | Default role for JIT-provisioned users |
-| `SAML_SP_KEY_ENCRYPTION_PASSWORD` | disabled | Encrypt SP private key at rest |
+| `OBSERVAL_LICENSE_KEY` | disabled | Set in `.env` to enable enterprise features |
+| `oauth.client_id` | disabled | OAuth/OIDC client ID (required in enterprise mode) |
+| `oauth.client_secret` | disabled | OAuth/OIDC client secret |
+| `oauth.server_metadata_url` | disabled | OIDC discovery URL |
+| `deployment.sso_only` | `false` | When true, disables password auth entirely; only SSO login allowed |
+| `saml.idp_entity_id` | disabled | IdP entity ID for SAML SSO |
+| `saml.idp_sso_url` | disabled | IdP single sign-on URL |
+| `saml.idp_x509_cert` | disabled | IdP signing certificate (base64) |
+| `saml.sp_entity_id` | auto | SP entity ID (derived from FRONTEND_URL if empty) |
+| `saml.sp_acs_url` | auto | SP ACS URL (derived from FRONTEND_URL if empty) |
+| `saml.jit_provisioning` | `true` | Auto-create users on first SAML login |
+| `saml.default_role` | `user` | Default role for JIT-provisioned users |
+| `saml.sp_key_encryption_password` | disabled | Encrypt SP private key at rest |
 
-In enterprise mode, self-registration and password-based login are disabled. All authentication goes through your configured identity provider (IdP).
+When `deployment.sso_only=true`, password-based login is disabled. All authentication goes through your configured identity provider.
 
 ---
 
@@ -51,7 +51,7 @@ Query audit log entries. Requires admin role.
 | `offset` | int | Pagination offset |
 
 ```bash
-curl "http://localhost:8000/api/v1/admin/audit-log?actor=admin@example.com&limit=20" \
+curl "http://localhost/api/v1/admin/audit-log?actor=admin@example.com&limit=20" \
   -H "X-API-Key: $OBSERVAL_KEY"
 ```
 
@@ -60,7 +60,7 @@ curl "http://localhost:8000/api/v1/admin/audit-log?actor=admin@example.com&limit
 Export audit logs as CSV. Same filters as the query endpoint.
 
 ```bash
-curl "http://localhost:8000/api/v1/admin/audit-log/export?start_date=2026-01-01" \
+curl "http://localhost/api/v1/admin/audit-log/export?start_date=2026-01-01" \
   -H "X-API-Key: $OBSERVAL_KEY" -o audit_log.csv
 ```
 
@@ -116,7 +116,7 @@ For detailed instructions, see [cli-sso.md](cli-sso.md).
 
 ## Enterprise Guard Middleware
 
-When `DEPLOYMENT_MODE=enterprise`, the following routes are blocked:
+When `deployment.sso_only=true`, the following routes are blocked:
 
 - `POST /api/v1/auth/bootstrap`, admin bootstrapping disabled (use IdP)
 
