@@ -22,7 +22,7 @@
  ╚═════╝ ╚═════╝ ╚══════╝╚══════╝╚═╝  ╚═╝  ╚═══╝  ╚═╝  ╚═╝╚══════╝
 </pre>
 
-**A registry and insight platform for portable AI coding agents. Define context once, install it across tools, and learn what works.**
+**Observal is the control plane and system of record for internal AI components**
 
 <p>
   <a href="LICENSE"><img src="https://img.shields.io/badge/license-AGPL--3.0-blue?style=flat-square" alt="License"></a>
