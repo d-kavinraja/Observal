@@ -38,19 +38,31 @@
 
 ---
 
-## What Observal is for
+## What is Observal and what does it solve?
 
-Observal is for teams doing context engineering across AI coding tools. If your organization maintains Skills, AGENTS files, MCP servers, hooks, prompts, sandboxes, or subagent definitions, Observal gives you one place to package them into versioned agents, publish them to a registry, and install them into the harness or harness your developers use.
+Observal is the control plane and system of record for internal AI components. Every tech-forward organization today creates internal Skills, Agents, MCP servers and other AI components to boost productivity. Though the creation of these components has been prolific, the adoption and usage of such components is sparse. Developer/AI users today end up creating their own version of AI components without reusing existing packages.
 
-Define an agent once. Observal renders the right configuration for Claude Code, Cursor, Kiro, Pi, Copilot, Codex, OpenCode, and other supported tools. As teams use those agents, Observal turns real usage into insights about which prompts, skills, tools, and policies are helping.
+The cause is largely due to two problems:
+
+1) Lack of a discoverability layer
+
+Organizations store their AI components and agents in siloed github repositories with little to no documentation. Users are not able to locate similar components and this results in multiple developers creating the same/similar components again.
+
+2) Missing Feedback Loop
+
+Any software where usage patterns are not understood and the principle of user-centric development is violated tends to fade out. Such is the problem with development of MCPs, Skills and Agents. Developers publish and maintain these components with little visibility into how they're actually used. Additionally, AI failures don't trigger static error codes—they hallucinate or provide subtly incorrect answers. This leaves users clueless about what went wrong compounding the feedback problem.
+
+Observal solves this by providing a centralized discovery layer for AI components alongside useful insights into AI usage patterns. It turns silent failures into actionable feedback, ensuring internal AI tools are continuously optimized for the people using them.
+
+Observal supports Claude Code, Cursor, Kiro, Pi, Copilot, Codex, OpenCode, and other tools.
 
 ### Why teams use Observal
 
-- **Package context into reusable agents:** Bundle Skills, MCP servers, hooks, prompts, sandboxes, and policy into one versioned unit.
+- **Package workflows into reusable agents:** Bundle Skills, MCP servers, hooks, prompts, sandboxes, and policy into one versioned unit.
 - **Run a governed registry:** Review submissions, approve internal agents, inspect version diffs, and give developers one trusted place to install from.
-- **Render across coding tools:** Generate the correct config for each supported harness instead of maintaining separate setup instructions for every harness.
+- **Render across multiple Coding IDE/CLI:** Generate the correct config for each supported harness instead of maintaining separate setup instructions for every harness.
 - **Learn what works:** Use real adoption and session data to find which agents, tools, prompts, and workflows are helping teams.
-- **Replay sessions when needed:** Use traces as evidence for debugging, review, audits, and deeper analysis without making observability the main workflow.
+- **Replay sessions when needed:** Use traces as evidence for debugging, review, audits, and deeper analysis.
 
 ---
 
