@@ -1,6 +1,6 @@
 #!/usr/bin/env python3
 # SPDX-FileCopyrightText: 2026 Hari Srinivasan <harisrini21@gmail.com>
-# SPDX-License-Identifier: AGPL-3.0-only
+# SPDX-License-Identifier: Apache-2.0
 """
 Adds SPDX headers to all source files.
 - Runs git log per file to collect real authors and year ranges
@@ -209,8 +209,8 @@ def format_copyright_lines(authors: dict, prefix: str, suffix: str) -> list:
 def get_license_id(path: Path) -> str:
     rel = str(path.relative_to(ROOT))
     if rel.startswith("ee/"):
-        return "AGPL-3.0-only"
-    return "AGPL-3.0-only"
+        return "Apache-2.0"
+    return "Apache-2.0"
 
 
 def already_has_spdx(path: Path) -> bool:
