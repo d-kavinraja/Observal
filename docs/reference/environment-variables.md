@@ -1,7 +1,3 @@
-<!-- SPDX-FileCopyrightText: 2026 Apoorv Garg <apoorvgarg.21@gmail.com> -->
-<!-- SPDX-FileCopyrightText: 2026 Hari Srinivasan <harisrini21@gmail.com> -->
-<!-- SPDX-License-Identifier: AGPL-3.0-only -->
-
 # Environment variables
 
 Complete reference for every environment variable the server and CLI read. Defaults are in `.env.example` (server) and built into the CLI (client).
@@ -10,15 +6,15 @@ Complete reference for every environment variable the server and CLI read. Defau
 
 ### Core / security
 
-| Variable                 | Default                        | Description                                                                                                                                                |
-| ------------------------ | ------------------------------ | ---------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| `SECRET_KEY`             | `change-me-to-a-random-string` | Session signing key. Generate: `python3 -c "import secrets; print(secrets.token_urlsafe(32))"`                                                             |
+| Variable                 | Default                        | Description                                                                                                                                                   |
+| ------------------------ | ------------------------------ | ------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `SECRET_KEY`             | `change-me-to-a-random-string` | Session signing key. Generate: `python3 -c "import secrets; print(secrets.token_urlsafe(32))"`                                                                |
 | `OBSERVAL_LICENSE_KEY`   | -                              | Ed25519-signed enterprise license key. Enables enterprise features such as SAML and insight reports. Validated at startup; leave unset for community edition. |
-| `FRONTEND_URL`           | `http://localhost:3000`        | External frontend URL (OAuth redirects, email links)                                                                                                       |
-| `CORS_ALLOWED_ORIGINS`   | `http://localhost:3000`        | Comma-separated allowed CORS origins                                                                                                                       |
-| `MAX_REQUEST_SIZE_MB`    | `10`                           | Maximum request body size                                                                                                                                  |
-| `RATE_LIMIT_AUTH`        | `10/minute`                    | General auth-endpoint rate limit                                                                                                                           |
-| `RATE_LIMIT_AUTH_STRICT` | `5/minute`                     | Login and password-reset rate limit                                                                                                                        |
+| `FRONTEND_URL`           | `http://localhost:3000`        | External frontend URL (OAuth redirects, email links)                                                                                                          |
+| `CORS_ALLOWED_ORIGINS`   | `http://localhost:3000`        | Comma-separated allowed CORS origins                                                                                                                          |
+| `MAX_REQUEST_SIZE_MB`    | `10`                           | Maximum request body size                                                                                                                                     |
+| `RATE_LIMIT_AUTH`        | `10/minute`                    | General auth-endpoint rate limit                                                                                                                              |
+| `RATE_LIMIT_AUTH_STRICT` | `5/minute`                     | Login and password-reset rate limit                                                                                                                           |
 
 ### Databases
 
@@ -48,16 +44,16 @@ OIDC, SAML, and SSO-only mode are configured in **Admin → SSO** and stored in 
 
 ### AWS (Bedrock)
 
-> **Note:** Bedrock now supports [API keys](https://docs.aws.amazon.com/bedrock/latest/userguide/api-keys.html) — generate one from the AWS console and use it like any other provider. See [Insights LLM Setup](../insights-setup.md).
+> **Note:** Bedrock now supports [API keys](https://docs.aws.amazon.com/bedrock/latest/userguide/api-keys.html) — generate one from the AWS console and use it like any other provider. See [Insights LLM Setup](https://github.com/BlazeUp-AI/Observal/blob/main/docs/insights-setup.md).
 
 These environment variables are **not required** if you use Bedrock API keys (recommended). They exist only for legacy setups using instance roles or ECS task roles where LiteLLM auto-discovers credentials from the environment.
 
-| Variable                | Default     | Description                                  |
-| ----------------------- | ----------- | -------------------------------------------- |
-| `AWS_ACCESS_KEY_ID`     | -           | Only for legacy IAM auth (not recommended)   |
-| `AWS_SECRET_ACCESS_KEY` | -           | Only for legacy IAM auth (not recommended)   |
-| `AWS_SESSION_TOKEN`     | -           | Temporary credentials (STS AssumeRole)       |
-| `AWS_REGION_NAME`       | `us-east-1` | AWS region (used by LiteLLM's boto3 client)  |
+| Variable                | Default     | Description                                 |
+| ----------------------- | ----------- | ------------------------------------------- |
+| `AWS_ACCESS_KEY_ID`     | -           | Only for legacy IAM auth (not recommended)  |
+| `AWS_SECRET_ACCESS_KEY` | -           | Only for legacy IAM auth (not recommended)  |
+| `AWS_SESSION_TOKEN`     | -           | Temporary credentials (STS AssumeRole)      |
+| `AWS_REGION_NAME`       | `us-east-1` | AWS region (used by LiteLLM's boto3 client) |
 
 ### Git operations (submission analysis)
 
@@ -87,15 +83,15 @@ These environment variables are **not required** if you use Bedrock API keys (re
 
 Used only by Docker Compose. Prometheus and Grafana ports apply only when `docker-compose.observability.yml` is included. Remap if a default is already in use.
 
-| Variable               | Default | Service                |
-| ---------------------- | ------- | ---------------------- |
+| Variable               | Default | Service                   |
+| ---------------------- | ------- | ------------------------- |
 | `API_HOST_PORT`        | `8000`  | API (internal, behind LB) |
-| `WEB_HOST_PORT`        | `3000`  | Web UI                 |
-| `POSTGRES_HOST_PORT`   | `5432`  | Postgres               |
-| `CLICKHOUSE_HOST_PORT` | `8123`  | ClickHouse             |
-| `REDIS_HOST_PORT`      | `6379`  | Redis                  |
-| `PROMETHEUS_HOST_PORT` | `9090`  | Prometheus, optional   |
-| `GRAFANA_HOST_PORT`    | `3001`  | Grafana, optional      |
+| `WEB_HOST_PORT`        | `3000`  | Web UI                    |
+| `POSTGRES_HOST_PORT`   | `5432`  | Postgres                  |
+| `CLICKHOUSE_HOST_PORT` | `8123`  | ClickHouse                |
+| `REDIS_HOST_PORT`      | `6379`  | Redis                     |
+| `PROMETHEUS_HOST_PORT` | `9090`  | Prometheus, optional      |
+| `GRAFANA_HOST_PORT`    | `3001`  | Grafana, optional         |
 
 ### Grafana
 
@@ -128,5 +124,5 @@ observal ops traces --limit 100 --output json | jq
 
 ## Related
 
-- [Self-Hosting → Configuration](../self-hosting/configuration.md), narrative view, grouped by concern
-- [Config files](config-files.md), `~/.observal/` file layout
+* [Self-Hosting → Configuration](../self-hosting/configuration.md), narrative view, grouped by concern
+* [Config files](config-files.md), `~/.observal/` file layout

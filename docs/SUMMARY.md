@@ -1,13 +1,8 @@
-<!-- SPDX-FileCopyrightText: 2026 Apoorv Garg <apoorvgarg.21@gmail.com> -->
-<!-- SPDX-FileCopyrightText: 2026 tsitu0 <tomsitu0102@gmail.com> -->
-<!-- SPDX-FileCopyrightText: 2026 Nithin-Bhargav-07 <gaddamnithinbhargav@gmail.com> -->
-<!-- SPDX-License-Identifier: AGPL-3.0-only -->
-
-# Summary
+# Table of contents
 
 ## Getting Started
 
-* [Installation](getting-started/installation.md)
+* [Installation](README.md)
 * [Quickstart](getting-started/quickstart.md)
 * [Core Concepts](getting-started/core-concepts.md)
 

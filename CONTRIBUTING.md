@@ -1,49 +1,38 @@
-<!-- SPDX-FileCopyrightText: 2026 Ai-chan-0411 <aoikabu12@gmail.com> -->
-<!-- SPDX-FileCopyrightText: 2026 Apoorv Garg <apoorvgarg.21@gmail.com> -->
-<!-- SPDX-FileCopyrightText: 2026 Hari Srinivasan <harisrini21@gmail.com> -->
-<!-- SPDX-FileCopyrightText: 2026 Lokesh Selvam <lokeshselvam7025@gmail.com> -->
-<!-- SPDX-FileCopyrightText: 2026 Luca Magrini <lucamagrini1234@gmail.com> -->
-<!-- SPDX-FileCopyrightText: 2026 Naraen Rammoorthi <naraen13@gmail.com> -->
-<!-- SPDX-FileCopyrightText: 2026 Shaan Narendran <shaannaren06@gmail.com> -->
-<!-- SPDX-License-Identifier: AGPL-3.0-only -->
-
-# Contributing to Observal
+# Contributing Guide
 
 Thank you for considering contributing to Observal. Contributions of all kinds are welcome: bug reports, bug fixes, new features, documentation improvements, and tests.
 
-> [!TIP]
-> This page is a quick-start summary. For the full setup walkthrough, architecture notes, and detailed workflows, see the [Development Guide](docs/DEVELOPMENT_GUIDE.md). For new Python tests, follow the [Testing Guide](docs/testing/Testing_Guide.md).
+> \[!TIP] This page is a quick-start summary. For the full setup walkthrough, architecture notes, and detailed workflows, see the [Development Guide](docs/DEVELOPMENT_GUIDE.md). For new Python tests, follow the [Testing Guide](docs/testing/Testing_Guide.md).
 
-> [!IMPORTANT]
-> **Discord is our primary communication channel.** Join at [discord.observal.io](https://discord.observal.io) and ask questions in **#contributing**, report bugs in **#bug**, or discuss ideas in **#feature-requests**. GitHub issues and PRs are for concrete, actionable items, not exploratory discussion.
+> \[!IMPORTANT] **Discord is our primary communication channel.** Join at [discord.observal.io](https://discord.observal.io) and ask questions in **#contributing**, report bugs in **#bug**, or discuss ideas in **#feature-requests**. GitHub issues and PRs are for concrete, actionable items, not exploratory discussion.
 
-Please read our [Code of Conduct](CODE_OF_CONDUCT.md) and [AI Policy](AI_POLICY.md) before contributing.
+Please read our [Code of Conduct](https://github.com/BlazeUp-AI/Observal/blob/main/CODE_OF_CONDUCT.md) and [AI Policy](AI_POLICY.md) before contributing.
 
 > Parts of this guide were inspired by the contributing documentation from [AnkiDroid/Anki-Android](https://github.com/ankidroid/Anki-Android). They set a great standard for OSS contributor docs and were one of the first open-source projects some of our maintainers were part of. If you are looking for another welcoming OSS project, check them out.
 
----
+***
 
 ## Table of Contents
 
-- [Getting Started](#getting-started)
-- [Finding Work](#finding-work)
-- [Making Changes](#making-changes)
-- [Submitting a Pull Request](#submitting-a-pull-request)
-- [Reporting Issues](#reporting-issues)
-- [Enterprise Directory](#enterprise-directory-ee)
-- [License](#license)
-- [CLA](#contributor-license-agreement-cla)
+* [Getting Started](CONTRIBUTING.md#getting-started)
+* [Finding Work](CONTRIBUTING.md#finding-work)
+* [Making Changes](CONTRIBUTING.md#making-changes)
+* [Submitting a Pull Request](CONTRIBUTING.md#submitting-a-pull-request)
+* [Reporting Issues](CONTRIBUTING.md#reporting-issues)
+* [Enterprise Directory](CONTRIBUTING.md#enterprise-directory-ee)
+* [License](CONTRIBUTING.md#license)
+* [CLA](CONTRIBUTING.md#contributor-license-agreement-cla)
 
----
+***
 
 ## Getting Started
 
 ### Prerequisites
 
-- Docker and Docker Compose
-- [uv](https://docs.astral.sh/uv/) (Python 3.11+)
-- Node.js 20+ and pnpm (for the web frontend)
-- Git
+* Docker and Docker Compose
+* [uv](https://docs.astral.sh/uv/) (Python 3.11+)
+* Node.js 20+ and pnpm (for the web frontend)
+* Git
 
 ### Fork and Clone
 
@@ -77,7 +66,7 @@ uv tool install --editable .
 observal auth login
 ```
 
-The stack starts at `http://localhost` (nginx LB on port 80). The `.env.example` seeds demo accounts on first startup, log in with `super@demo.example` / `super-changeme` for admin access. See [SETUP.md](SETUP.md) for all credentials.
+The stack starts at `http://localhost` (nginx LB on port 80). The `.env.example` seeds demo accounts on first startup, log in with `super@demo.example` / `super-changeme` for admin access. See [SETUP.md](https://github.com/BlazeUp-AI/Observal/blob/main/SETUP.md) for all credentials.
 
 **Frontend only:**
 
@@ -87,10 +76,9 @@ cd web && pnpm install && pnpm dev
 
 Set `NEXT_PUBLIC_API_URL=http://localhost` in `web/.env.local` if the backend is on a different host.
 
-> [!NOTE]
-> See the [Development Guide](docs/DEVELOPMENT_GUIDE.md) for the full environment setup and troubleshooting steps.
+> \[!NOTE] See the [Development Guide](docs/DEVELOPMENT_GUIDE.md) for the full environment setup and troubleshooting steps.
 
----
+***
 
 ## Finding Work
 
@@ -100,15 +88,14 @@ For larger changes, open an issue or discuss in **#contributing** on Discord bef
 
 ### Claiming Issues
 
-- **`/take`** on any `good first issue` or `help wanted` issue to self-assign.
-- **`/drop`** to release an issue you can no longer work on.
-- Max **2 open assigned issues** at a time.
-- Issues with no activity for **30 days** are automatically unassigned.
+* **`/take`** on any `good first issue` or `help wanted` issue to self-assign.
+* **`/drop`** to release an issue you can no longer work on.
+* Max **2 open assigned issues** at a time.
+* Issues with no activity for **30 days** are automatically unassigned.
 
-> [!WARNING]
-> Issues labeled `keep open` cannot be claimed. Anyone may submit a PR for those without assignment.
+> \[!WARNING] Issues labeled `keep open` cannot be claimed. Anyone may submit a PR for those without assignment.
 
----
+***
 
 ## Making Changes
 
@@ -141,7 +128,7 @@ Every source file needs SPDX headers. The pre-commit hook adds them automaticall
 # SPDX-License-Identifier: AGPL-3.0-only
 ```
 
-Use `// ` for TypeScript, `<!-- -->` for Markdown. CI will block merge if any file is missing headers.
+Use `//` for TypeScript, `<!-- -->` for Markdown. CI will block merge if any file is missing headers.
 
 ### Testing
 
@@ -168,16 +155,16 @@ Subject line under 72 characters, imperative mood, no trailing period.
 
 ### Changelog
 
-Add an entry under `[Unreleased]` in [CHANGELOG.md](CHANGELOG.md) for any user-facing change.
+Add an entry under `[Unreleased]` in [CHANGELOG.md](https://github.com/BlazeUp-AI/Observal/blob/main/CHANGELOG.md) for any user-facing change.
 
----
+***
 
 ## Submitting a Pull Request
 
-> [!IMPORTANT]
-> Read the [AI Policy](AI_POLICY.md) before submitting. AI-assisted contributions are welcome but must meet the standards described there. **Autonomous coding agents (Devin, SWE-agent, OpenHands, and similar tools that write and submit code without meaningful human authorship) are not permitted**, see the AI Policy for the legal and practical reasons. PRs that show obvious signs of unreviewed AI output will be closed without review.
+> \[!IMPORTANT] Read the [AI Policy](AI_POLICY.md) before submitting. AI-assisted contributions are welcome but must meet the standards described there. **Autonomous coding agents (Devin, SWE-agent, OpenHands, and similar tools that write and submit code without meaningful human authorship) are not permitted**, see the AI Policy for the legal and practical reasons. PRs that show obvious signs of unreviewed AI output will be closed without review.
 
-1. Rebase against `main` before opening:
+1.  Rebase against `main` before opening:
+
     ```bash
     git fetch upstream && git rebase upstream/main
     ```
@@ -189,7 +176,7 @@ Add an entry under `[Unreleased]` in [CHANGELOG.md](CHANGELOG.md) for any user-f
 
 Keep PRs focused on a single concern. Smaller PRs are easier to review and faster to merge.
 
----
+***
 
 ## Reporting Issues
 
@@ -197,32 +184,31 @@ Keep PRs focused on a single concern. Smaller PRs are easier to review and faste
 
 Search [existing issues](https://github.com/Observal/Observal/issues) first. Include:
 
-- Steps to reproduce
-- Expected vs actual behaviour
-- OS, Python, Node.js, Docker versions
-- Error logs or screenshots
+* Steps to reproduce
+* Expected vs actual behaviour
+* OS, Python, Node.js, Docker versions
+* Error logs or screenshots
 
 ### Feature Requests
 
 Describe the problem you are solving, not just the solution. Discuss in **#feature-requests** on Discord first for larger features.
 
----
+***
 
 ## Enterprise Directory (`ee/`)
 
-> [!CAUTION]
-> Community contributions are **not accepted** into `ee/`. Pull requests touching `ee/` files will be closed. The open-source core must never import from `ee/`.
+> \[!CAUTION] Community contributions are **not accepted** into `ee/`. Pull requests touching `ee/` files will be closed. The open-source core must never import from `ee/`.
 
-The `ee/` directory is licensed under the [Observal Enterprise License](ee/LICENSE). The dependency is strictly one-way: `ee/` may import from the core, never the reverse.
+The `ee/` directory is licensed under the [Observal Enterprise License](https://github.com/BlazeUp-AI/Observal/blob/main/ee/LICENSE/README.md). The dependency is strictly one-way: `ee/` may import from the core, never the reverse.
 
----
+***
 
 ## License
 
-All code outside `ee/` is licensed under [AGPL-3.0](LICENSE). The `ee/` directory is licensed under the [Observal Enterprise License](ee/LICENSE).
+All code outside `ee/` is licensed under [AGPL-3.0](https://github.com/BlazeUp-AI/Observal/blob/main/LICENSE/README.md). The `ee/` directory is licensed under the [Observal Enterprise License](https://github.com/BlazeUp-AI/Observal/blob/main/ee/LICENSE/README.md).
 
----
+***
 
 ## Contributor License Agreement (CLA)
 
-The [CLA-assistant](https://cla-assistant.io) bot will prompt you to sign the [Observal CLA](CLA.md) on your first PR. You only need to sign once. For corporate contributions, contact contact@observal.io.
+The [CLA-assistant](https://cla-assistant.io) bot will prompt you to sign the [Observal CLA](https://github.com/BlazeUp-AI/Observal/blob/main/CLA.md) on your first PR. You only need to sign once. For corporate contributions, contact contact@observal.io.

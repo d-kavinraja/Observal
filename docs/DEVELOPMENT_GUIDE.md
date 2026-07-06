@@ -1,79 +1,74 @@
-<!-- SPDX-FileCopyrightText: 2026 Hari Srinivasan <harisrini21@gmail.com> -->
-<!-- SPDX-License-Identifier: AGPL-3.0-only -->
-
 # Development Guide
 
-> [!IMPORTANT]
-> **Discord is the primary place to ask questions.** Join at [discord.observal.io](https://discord.observal.io).
+> \[!IMPORTANT] **Discord is the primary place to ask questions.** Join at [discord.observal.io](https://discord.observal.io).
 >
-> - **#contributing**, setup help, workflow questions, anything about the contribution process
-> - **#bug**, discuss bugs before filing a GitHub issue
-> - **#feature-requests**, pitch ideas and get early feedback before writing code
+> * **#contributing**, setup help, workflow questions, anything about the contribution process
+> * **#bug**, discuss bugs before filing a GitHub issue
+> * **#feature-requests**, pitch ideas and get early feedback before writing code
 >
 > GitHub issues and PRs are for concrete, actionable items. Exploratory discussion belongs on Discord first.
 
 > Parts of this guide structure were inspired by the [AnkiDroid Development Guide](https://github.com/ankidroid/Anki-Android/wiki/Development-Guide). Attribution given with thanks, check them out if you want another welcoming OSS project to contribute to.
 
----
+***
 
 ## Table of Contents
 
-- [Community Standards](#community-standards)
-- [Prerequisites](#prerequisites)
-- [Git Setup](#git-setup)
-    - [SSH authentication](#ssh-authentication)
-    - [Git identity](#git-identity)
-    - [Fork and clone](#fork-and-clone)
-- [First-time Setup](#first-time-setup)
-    - [Install pre-commit hooks](#install-pre-commit-hooks)
-    - [Start the Docker stack](#start-the-docker-stack)
-    - [Install the CLI](#install-the-cli)
-    - [Demo accounts](#demo-accounts)
-- [Make Targets Reference](#make-targets-reference)
-- [Architecture Overview](#architecture-overview)
-- [Git Workflow](#git-workflow)
-    - [Making a new branch](#making-a-new-branch)
-    - [Keeping your branch up to date](#keeping-your-branch-up-to-date)
-    - [Dealing with merge conflicts](#dealing-with-merge-conflicts)
-    - [Submitting a pull request](#submitting-a-pull-request)
-    - [After review feedback](#after-review-feedback)
-- [Working on the Backend](#working-on-the-backend)
-    - [Running tests](#running-tests)
-    - [Testing conventions](#testing-conventions)
-    - [Running a single test](#running-a-single-test)
-    - [Code coverage](#code-coverage)
-    - [Adding a database migration](#adding-a-database-migration)
-    - [Connecting to PostgreSQL directly](#connecting-to-postgresql-directly)
-    - [Connecting to ClickHouse directly](#connecting-to-clickhouse-directly)
-    - [Debugging the API](#debugging-the-api)
-- [Working on the Frontend](#working-on-the-frontend)
-    - [Running the frontend in isolation](#running-the-frontend-in-isolation)
-    - [Design system](#design-system)
-    - [Adding a new API endpoint to the frontend](#adding-a-new-api-endpoint-to-the-frontend)
-    - [Screenshots for UI changes](#screenshots-for-ui-changes)
-- [Working on the CLI](#working-on-the-cli)
-    - [Reinstalling after changes](#reinstalling-after-changes)
-    - [Testing the shim](#testing-the-shim)
-- [Harness Recommendations](#harness-recommendations)
-    - [VS Code](#vs-code)
-    - [PyCharm / IntelliJ](#pycharm--intellij)
-- [Pre-commit Hooks](#pre-commit-hooks)
-- [Pull Request Checklist](#pull-request-checklist)
-- [Getting Help](#getting-help)
+* [Community Standards](DEVELOPMENT_GUIDE.md#community-standards)
+* [Prerequisites](DEVELOPMENT_GUIDE.md#prerequisites)
+* [Git Setup](DEVELOPMENT_GUIDE.md#git-setup)
+  * [SSH authentication](DEVELOPMENT_GUIDE.md#ssh-authentication)
+  * [Git identity](DEVELOPMENT_GUIDE.md#git-identity)
+  * [Fork and clone](DEVELOPMENT_GUIDE.md#fork-and-clone)
+* [First-time Setup](DEVELOPMENT_GUIDE.md#first-time-setup)
+  * [Install pre-commit hooks](DEVELOPMENT_GUIDE.md#install-pre-commit-hooks)
+  * [Start the Docker stack](DEVELOPMENT_GUIDE.md#start-the-docker-stack)
+  * [Install the CLI](DEVELOPMENT_GUIDE.md#install-the-cli)
+  * [Demo accounts](DEVELOPMENT_GUIDE.md#demo-accounts)
+* [Make Targets Reference](DEVELOPMENT_GUIDE.md#make-targets-reference)
+* [Architecture Overview](DEVELOPMENT_GUIDE.md#architecture-overview)
+* [Git Workflow](DEVELOPMENT_GUIDE.md#git-workflow)
+  * [Making a new branch](DEVELOPMENT_GUIDE.md#making-a-new-branch)
+  * [Keeping your branch up to date](DEVELOPMENT_GUIDE.md#keeping-your-branch-up-to-date)
+  * [Dealing with merge conflicts](DEVELOPMENT_GUIDE.md#dealing-with-merge-conflicts)
+  * [Submitting a pull request](DEVELOPMENT_GUIDE.md#submitting-a-pull-request)
+  * [After review feedback](DEVELOPMENT_GUIDE.md#after-review-feedback)
+* [Working on the Backend](DEVELOPMENT_GUIDE.md#working-on-the-backend)
+  * [Running tests](DEVELOPMENT_GUIDE.md#running-tests)
+  * [Testing conventions](DEVELOPMENT_GUIDE.md#testing-conventions)
+  * [Running a single test](DEVELOPMENT_GUIDE.md#running-a-single-test)
+  * [Code coverage](DEVELOPMENT_GUIDE.md#code-coverage)
+  * [Adding a database migration](DEVELOPMENT_GUIDE.md#adding-a-database-migration)
+  * [Connecting to PostgreSQL directly](DEVELOPMENT_GUIDE.md#connecting-to-postgresql-directly)
+  * [Connecting to ClickHouse directly](DEVELOPMENT_GUIDE.md#connecting-to-clickhouse-directly)
+  * [Debugging the API](DEVELOPMENT_GUIDE.md#debugging-the-api)
+* [Working on the Frontend](DEVELOPMENT_GUIDE.md#working-on-the-frontend)
+  * [Running the frontend in isolation](DEVELOPMENT_GUIDE.md#running-the-frontend-in-isolation)
+  * [Design system](DEVELOPMENT_GUIDE.md#design-system)
+  * [Adding a new API endpoint to the frontend](DEVELOPMENT_GUIDE.md#adding-a-new-api-endpoint-to-the-frontend)
+  * [Screenshots for UI changes](DEVELOPMENT_GUIDE.md#screenshots-for-ui-changes)
+* [Working on the CLI](DEVELOPMENT_GUIDE.md#working-on-the-cli)
+  * [Reinstalling after changes](DEVELOPMENT_GUIDE.md#reinstalling-after-changes)
+  * [Testing the shim](DEVELOPMENT_GUIDE.md#testing-the-shim)
+* [Harness Recommendations](DEVELOPMENT_GUIDE.md#harness-recommendations)
+  * [VS Code](DEVELOPMENT_GUIDE.md#vs-code)
+  * [PyCharm / IntelliJ](DEVELOPMENT_GUIDE.md#pycharm--intellij)
+* [Pre-commit Hooks](DEVELOPMENT_GUIDE.md#pre-commit-hooks)
+* [Pull Request Checklist](DEVELOPMENT_GUIDE.md#pull-request-checklist)
+* [Getting Help](DEVELOPMENT_GUIDE.md#getting-help)
 
----
+***
 
 ## Community Standards
 
 We are a small, active community and we take the quality of interactions seriously.
 
-> [!WARNING]
-> The following will result in a **moderator warning**. A second violation results in a **temporary or permanent ban** from the repository and Discord:
+> \[!WARNING] The following will result in a **moderator warning**. A second violation results in a **temporary or permanent ban** from the repository and Discord:
 >
-> - Pinging contributors, maintainers, or reviewers unnecessarily (outside of a direct reply on your own open PR or issue)
-> - Submitting low-effort or unreviewed PRs (slop), including unreviewed AI output or autonomous agent submissions
-> - Violating the [Code of Conduct](../CODE_OF_CONDUCT.md) in any channel
-> - Harassing reviewers over merge timelines
+> * Pinging contributors, maintainers, or reviewers unnecessarily (outside of a direct reply on your own open PR or issue)
+> * Submitting low-effort or unreviewed PRs (slop), including unreviewed AI output or autonomous agent submissions
+> * Violating the [Code of Conduct](https://github.com/BlazeUp-AI/Observal/blob/main/CODE_OF_CONDUCT.md) in any channel
+> * Harassing reviewers over merge timelines
 
 Maintainers volunteer their time. Treat them accordingly.
 
@@ -81,7 +76,7 @@ Maintainers volunteer their time. Treat them accordingly.
 
 **Autonomous coding agents (Devin, SWE-agent, OpenHands, etc.) are not permitted to submit PRs.** This is a legal constraint, not a quality judgment. The US Copyright Office's 2025 guidance confirms that purely AI-generated code has no copyright owner, which breaks our CLA, our AGPL licensing chain, and our ability to enforce copyleft. See the [AI Policy](../AI_POLICY.md) for the full explanation.
 
----
+***
 
 ## Prerequisites
 
@@ -102,7 +97,7 @@ docker compose version
 
 If you see `docker-compose: command not found` or a v1 version, upgrade Docker Desktop or install the Compose plugin separately.
 
----
+***
 
 ## Git Setup
 
@@ -148,7 +143,6 @@ git config --global user.signingkey YOUR_GPG_KEY_ID
 You only need to do this once. For every subsequent contribution, just create a new branch on your existing fork.
 
 1. Fork the repository on GitHub (top-right **Fork** button).
-
 2. Clone your fork using SSH:
 
 ```bash
@@ -172,7 +166,7 @@ git remote -v
 # upstream  https://github.com/Observal/Observal.git (push)
 ```
 
----
+***
 
 ## First-time Setup
 
@@ -207,8 +201,8 @@ make rebuild-fast
 
 `make rebuild-fast` is not a separate dev profile and does not enable hot reload. It uses the same Docker Compose stack as `make rebuild`, but only builds the two app images that contain local code:
 
-- `observal-api`, shared by the API, init, and worker services
-- `observal-web`, used by the web service
+* `observal-api`, shared by the API, init, and worker services
+* `observal-web`, used by the web service
 
 Then it starts the full stack with the freshly built images.
 
@@ -221,13 +215,13 @@ docker compose -f docker/docker-compose.yml ps
 
 **Default endpoints:**
 
-| Service         | URL                     |
-| --------------- | ----------------------- |
-| LB (all traffic)| `http://localhost`      |
-| Web UI (direct) | `http://localhost:3000` |
+| Service              | URL                     |
+| -------------------- | ----------------------- |
+| LB (all traffic)     | `http://localhost`      |
+| Web UI (direct)      | `http://localhost:3000` |
 | Prometheus, optional | `http://localhost:9090` |
-| Grafana, optional | `http://localhost:3001` |
-| ClickHouse HTTP | `http://localhost:8123` |
+| Grafana, optional    | `http://localhost:3001` |
+| ClickHouse HTTP      | `http://localhost:8123` |
 
 ### Install the CLI
 
@@ -241,20 +235,20 @@ uv tool install --editable .
 observal auth login
 ```
 
-On a fresh server, this bootstraps the admin account automatically. Use `super@demo.example` / `super-changeme` for the super_admin account.
+On a fresh server, this bootstraps the admin account automatically. Use `super@demo.example` / `super-changeme` for the super\_admin account.
 
 ### Demo accounts
 
 Seeded automatically on first startup:
 
-| Email                | Password         | Role        |
-| -------------------- | ---------------- | ----------- |
-| `super@demo.example` | `super-changeme` | super_admin |
-| `admin@demo.example` | `admin-changeme` | admin       |
-| `dev@demo.example`   | `dev-changeme`   | developer   |
-| `user@demo.example`  | `user-changeme`  | user        |
+| Email                | Password         | Role         |
+| -------------------- | ---------------- | ------------ |
+| `super@demo.example` | `super-changeme` | super\_admin |
+| `admin@demo.example` | `admin-changeme` | admin        |
+| `dev@demo.example`   | `dev-changeme`   | developer    |
+| `user@demo.example`  | `user-changeme`  | user         |
 
----
+***
 
 ## Make Targets Reference
 
@@ -275,19 +269,19 @@ make reset         # nuke all volumes and rebuild from scratch (destructive)
 
 ### Which rebuild target should I use?
 
-| Situation | Target | Notes |
-| --------- | ------ | ----- |
-| Backend source changed | `make rebuild-fast` | Rebuilds the shared API image used by API, init, and worker. |
-| Worker, init, migration, or ClickHouse setup code changed | `make rebuild-fast` | These services use the same `observal-api` image. This is the safe path for schema and init path changes because it refreshes the image used by `observal-init` and `observal-worker`. |
-| Python dependencies changed in `observal-server/pyproject.toml` or `observal-server/uv.lock` | `make rebuild-fast` | Docker reruns the Python dependency layer when those files change. |
-| Frontend source changed | `make rebuild-fast` | Rebuilds the web image. |
-| Frontend dependencies changed in `package.json`, `web/package.json`, or `pnpm-lock.yaml` | `make rebuild-fast` | Docker reruns the pnpm dependency layer when those files change. |
-| Compose topology changed | `make rebuild` | Use this for new services, changed image names, changed build contexts, changed profiles, or volume and network changes. |
-| Cache looks stale or the stack behaves unexpectedly | `make rebuild` first | Use `make rebuild-clean` only when you intentionally want a no-cache rebuild with volumes removed. |
+| Situation                                                                                    | Target               | Notes                                                                                                                                                                                  |
+| -------------------------------------------------------------------------------------------- | -------------------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| Backend source changed                                                                       | `make rebuild-fast`  | Rebuilds the shared API image used by API, init, and worker.                                                                                                                           |
+| Worker, init, migration, or ClickHouse setup code changed                                    | `make rebuild-fast`  | These services use the same `observal-api` image. This is the safe path for schema and init path changes because it refreshes the image used by `observal-init` and `observal-worker`. |
+| Python dependencies changed in `observal-server/pyproject.toml` or `observal-server/uv.lock` | `make rebuild-fast`  | Docker reruns the Python dependency layer when those files change.                                                                                                                     |
+| Frontend source changed                                                                      | `make rebuild-fast`  | Rebuilds the web image.                                                                                                                                                                |
+| Frontend dependencies changed in `package.json`, `web/package.json`, or `pnpm-lock.yaml`     | `make rebuild-fast`  | Docker reruns the pnpm dependency layer when those files change.                                                                                                                       |
+| Compose topology changed                                                                     | `make rebuild`       | Use this for new services, changed image names, changed build contexts, changed profiles, or volume and network changes.                                                               |
+| Cache looks stale or the stack behaves unexpectedly                                          | `make rebuild` first | Use `make rebuild-clean` only when you intentionally want a no-cache rebuild with volumes removed.                                                                                     |
 
 `make down` stops containers started by either `make rebuild` or `make rebuild-fast`. Both targets use the same Compose project and the same volumes.
 
----
+***
 
 ## Architecture Overview
 
@@ -306,16 +300,16 @@ scripts/            Dev tooling scripts
 
 **Databases:**
 
-- **PostgreSQL**, relational data (users, agents, registry, feedback)
-- **ClickHouse**, time-series telemetry (traces, spans, scores)
+* **PostgreSQL**, relational data (users, agents, registry, feedback)
+* **ClickHouse**, time-series telemetry (traces, spans, scores)
 
 They are not interchangeable. Never write telemetry to Postgres or relational data to ClickHouse.
 
 **Supporting services:** Redis (pub/sub + arq job queue), arq worker, nginx reverse proxy. Prometheus and Grafana are optional.
 
-See [AGENTS.md](../../AGENTS.md) for a complete map of every important file and service.
+See [AGENTS.md](https://github.com/BlazeUp-AI/Observal/blob/main/AGENTS.md) for a complete map of every important file and service.
 
----
+***
 
 ## Git Workflow
 
@@ -383,7 +377,8 @@ git push origin feature/my-feature --force-with-lease
 ### Submitting a pull request
 
 1. Make sure your branch is rebased on the latest `main` (see above).
-2. Push to your fork:
+2.  Push to your fork:
+
     ```bash
     git push origin feature/my-feature
     ```
@@ -401,7 +396,7 @@ git commit --amend --no-edit
 git push origin feature/my-feature --force-with-lease
 ```
 
----
+***
 
 ## Working on the Backend
 
@@ -455,8 +450,7 @@ Edit the generated file in `observal-server/alembic/versions/`. Then verify the 
 python3 scripts/check_migrations.py
 ```
 
-> [!CAUTION]
-> Never edit an existing migration file. Always create a new one. A broken migration chain blocks CI and prevents the server from starting.
+> \[!CAUTION] Never edit an existing migration file. Always create a new one. A broken migration chain blocks CI and prevents the server from starting.
 
 Apply migrations to your local stack:
 
@@ -507,12 +501,12 @@ To add a breakpoint, use `breakpoint()` in Python code, the debugger will pause 
 
 The OpenAPI docs are available at (API port, not through the LB which blocks these paths):
 
-- `http://localhost:8000/docs` (Swagger UI, requires direct API port access)
-- `http://localhost:8000/redoc` (ReDoc, requires direct API port access)
+* `http://localhost:8000/docs` (Swagger UI, requires direct API port access)
+* `http://localhost:8000/redoc` (ReDoc, requires direct API port access)
 
 > Note: The nginx LB blocks `/docs`, `/redoc`, and `/openapi.json` in production. For local dev, expose the API port directly or use `docker compose exec`.
 
----
+***
 
 ## Working on the Frontend
 
@@ -560,10 +554,9 @@ When adding new UI, use the semantic tokens, never hardcode colors. Check all fi
 
 ### Screenshots for UI changes
 
-> [!IMPORTANT]
-> Any PR that touches the web frontend must include **screenshots of all affected screens** in the PR description. This is required regardless of how small the change is. Attach screenshots directly to the PR body, not as review comments.
+> \[!IMPORTANT] Any PR that touches the web frontend must include **screenshots of all affected screens** in the PR description. This is required regardless of how small the change is. Attach screenshots directly to the PR body, not as review comments.
 
----
+***
 
 ## Working on the CLI
 
@@ -586,7 +579,7 @@ observal-shim -- uvx mcp-server-filesystem /tmp
 
 Telemetry will be buffered to `~/.observal/telemetry_buffer.db` if the server is not running, and flushed on reconnect.
 
----
+***
 
 ## Harness Recommendations
 
@@ -594,12 +587,12 @@ Telemetry will be buffered to `~/.observal/telemetry_buffer.db` if the server is
 
 Install these extensions for the best experience:
 
-- **Python** (`ms-python.python`), LSP, type checking
-- **Pylance** (`ms-python.vscode-pylance`), fast type inference
-- **Ruff** (`charliermarsh.ruff`), linting and formatting on save
-- **ESLint** (`dbaeumer.vscode-eslint`), JavaScript/TypeScript linting
-- **Prettier** (`esbenp.prettier-vscode`), TypeScript formatting
-- **Docker** (`ms-azuretools.vscode-docker`), container management
+* **Python** (`ms-python.python`), LSP, type checking
+* **Pylance** (`ms-python.vscode-pylance`), fast type inference
+* **Ruff** (`charliermarsh.ruff`), linting and formatting on save
+* **ESLint** (`dbaeumer.vscode-eslint`), JavaScript/TypeScript linting
+* **Prettier** (`esbenp.prettier-vscode`), TypeScript formatting
+* **Docker** (`ms-azuretools.vscode-docker`), container management
 
 Recommended `settings.json` additions:
 
@@ -625,7 +618,7 @@ Recommended `settings.json` additions:
 4. Install the **Ruff** plugin for in-editor linting.
 5. Enable **File Watchers** to run `ruff format` on save.
 
----
+***
 
 ## Pre-commit Hooks
 
@@ -653,24 +646,24 @@ If a hook fails, fix the reported issue and commit again. To bypass in an emerge
 git commit --no-verify -m "your message"
 ```
 
----
+***
 
 ## Pull Request Checklist
 
 Before opening a PR:
 
-- [ ] `make test` passes locally
-- [ ] `make lint` passes with no errors
-- [ ] Branch is rebased on the latest `main`
-- [ ] Commits follow [Conventional Commits](https://www.conventionalcommits.org/) format
-- [ ] All commits are signed off with SPDX headers (pre-commit hook handles this automatically)
-- [ ] PR template is filled in completely (not by AI)
-- [ ] CHANGELOG.md updated under `[Unreleased]` for user-facing changes
-- [ ] Frontend changes include screenshots in the PR body
-- [ ] AI-assisted contributions labelled with tool name and version (see [AI Policy](../AI_POLICY.md))
-- [ ] No autonomous agent submissions (see [AI Policy](../AI_POLICY.md))
+* [ ] `make test` passes locally
+* [ ] `make lint` passes with no errors
+* [ ] Branch is rebased on the latest `main`
+* [ ] Commits follow [Conventional Commits](https://www.conventionalcommits.org/) format
+* [ ] All commits are signed off with SPDX headers (pre-commit hook handles this automatically)
+* [ ] PR template is filled in completely (not by AI)
+* [ ] CHANGELOG.md updated under `[Unreleased]` for user-facing changes
+* [ ] Frontend changes include screenshots in the PR body
+* [ ] AI-assisted contributions labelled with tool name and version (see [AI Policy](../AI_POLICY.md))
+* [ ] No autonomous agent submissions (see [AI Policy](../AI_POLICY.md))
 
----
+***
 
 ## Getting Help
 
@@ -678,5 +671,4 @@ If you are stuck, the best place to ask is **#contributing** on [Discord](https:
 
 For bugs use **#bug**. For feature ideas use **#feature-requests**.
 
-> [!NOTE]
-> Do not open a GitHub issue just to ask a question. Issues are for confirmed bugs and accepted feature requests. Questions belong on Discord.
+> \[!NOTE] Do not open a GitHub issue just to ask a question. Issues are for confirmed bugs and accepted feature requests. Questions belong on Discord.
